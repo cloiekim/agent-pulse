@@ -1,0 +1,131 @@
+import SwiftUI
+
+/// 팝오버 하단의 usage 블록.
+///
+/// 디자인 규칙: neutral 트랙 + accent(단색) 채움.
+/// 게이지에 색을 쓰지 않는 게 포인트입니다 — 색은 위쪽 상태 축이 전부 가져갑니다.
+///
+/// ⚠️ 막대는 **제공자가 준 진짜 퍼센트가 있을 때만** 그립니다.
+/// 우리가 센 절대량에는 분모가 없으므로 숫자만 씁니다.
+struct UsageFooter: View {
+    @Environment(\.colorScheme) private var systemScheme
+    private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
+    private var loc: Loc { AppSettings.shared.loc }
+
+    let groups: [UsageGroup]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                // ⚠️ 항목이 하나뿐이면 헤더를 따로 두지 않습니다.
+                //    "Claude Code" 한 줄 + 값 한 줄 = 두 줄인데, 묶을 게 없는
+                //    헤더는 자리만 먹습니다. 여러 항목일 때만 헤더가 일을 합니다.
+                if group.quotas.count == 1, let quota = group.quotas.first,
+                   quota.barFraction == nil {
+                    CompactRow(provider: group.provider, quota: quota)
+                        .padding(.top, index == 0 ? 0 : 2)
+                } else {
+                    HStack(spacing: 6) {
+                        BrandMark(agent: group.provider.iconAgent)
+                            .frame(width: 12, height: 12)
+                        Text(group.provider.displayName)
+                            .font(Theme.supporting(.semibold))
+                            .foregroundStyle(theme.textPrimary)
+                    }
+                    .padding(.top, index == 0 ? 0 : 2)
+
+                    ForEach(group.quotas) { quota in
+                        QuotaRow(quota: quota)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Theme.rowPaddingH)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.footer)
+    }
+}
+
+/// 로고 + 이름 + 값을 한 줄에.
+private struct CompactRow: View {
+    @Environment(\.colorScheme) private var systemScheme
+    private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
+    private var loc: Loc { AppSettings.shared.loc }
+
+    let provider: UsageQuota.Provider
+    let quota: UsageQuota
+
+    var body: some View {
+        HStack(spacing: 6) {
+            BrandMark(agent: provider.iconAgent)
+                .frame(width: 12, height: 12)
+
+            Text(provider.displayName)
+                .font(Theme.supporting(.semibold))
+                .foregroundStyle(theme.textPrimary)
+                .fixedSize()
+
+            Spacer(minLength: 8)
+
+            Text(quota.valueText(loc))
+                .font(Theme.supporting())
+                .foregroundStyle(theme.textSecondary)
+                .lineLimit(1)
+                // 한국어는 같은 뜻이 더 길어서 좁은 화면에선 살짝 줄입니다.
+                .minimumScaleFactor(0.85)
+        }
+        .help(quota.tooltip(loc))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(provider.displayName): \(quota.valueText(loc))")
+    }
+}
+
+private struct QuotaRow: View {
+    @Environment(\.colorScheme) private var systemScheme
+    private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
+    private var loc: Loc { AppSettings.shared.loc }
+
+    let quota: UsageQuota
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            // ⚠️ 막대가 있을 때만 라벨을 왼쪽·값을 오른쪽으로 갈라놓습니다.
+            //
+            //    디자인 4a 는 아래 진행 막대가 두 텍스트를 하나로 묶어줬습니다.
+            //    그런데 진짜 퍼센트가 없어 막대를 빼고 나니, 라벨만 왼쪽에 남고
+            //    값은 저 멀리 오른쪽에 붙은 이상한 모양이 됐습니다.
+            //    묶어주는 게 없으면 갈라놓으면 안 됩니다.
+            if let fraction = quota.barFraction {
+                HStack {
+                    Text(quota.displayLabel(loc))
+                        .foregroundStyle(theme.textSecondary)
+                    Spacer(minLength: 8)
+                    Text(quota.valueText(loc))
+                        .foregroundStyle(theme.textPrimary)
+                        .fontWeight(.medium)
+                }
+                .font(Theme.supporting())
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(theme.trackBg)
+                        Capsule()
+                            .fill(theme.trackFill)
+                            .frame(width: fraction * geo.size.width)
+                    }
+                }
+                .frame(height: 5)
+            } else {
+                // 막대가 없으면 한 줄로 읽히게 둡니다.
+                // `Used` 는 값이 이미 "12.3M tokens" 라고 말하므로 뺍니다.
+                Text(quota.valueText(loc))
+                    .font(Theme.supporting())
+                    .foregroundStyle(theme.textPrimary)
+            }
+        }
+        .help(quota.tooltip(loc))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(quota.provider.displayName): \(quota.valueText(loc))")
+    }
+}

@@ -1,0 +1,12 @@
+# 빌드 산출물
+.build/
+AgentPulse.app/
+dist/
+Resources/AgentPulse.icns
+
+# macOS
+.DS_Store
+
+# 로컬 설정·비밀
+*.agent-pulse-backup.*
+private-key*

@@ -1,0 +1,302 @@
+// Agent Pulse — 페이지 컨텍스트(MAIN world) 감시자
+//
+// ⚠️ 이 파일의 설계가 이 확장의 성패를 가릅니다.
+//
+// 기존 ChatGPT 알림 확장들은 전부 죽었습니다 — 현존 최대가 사용자 521명,
+// 별점 2.7, 2023년 이후 방치, 여러 개는 스토어에서 삭제. 이유는 하나입니다:
+// 전부 `result-streaming` 같은 **CSS 클래스를 폴링**했고, UI 개편 때마다 깨졌습니다.
+//
+// 반면 살아남은 것들(Claude Usage Tracker 사용자 10만 명, 별점 4.8)은
+// 전부 **네트워크 계층을 가로챕니다.** DOM 은 UI 를 주입할 때만 씁니다.
+//
+// 그래서 여기서는 `fetch` 와 `EventSource` 만 감싸고, DOM 은 손대지 않습니다.
+// 회사가 화면을 아무리 갈아엎어도 응답 스트림의 주소와 모양은 훨씬 천천히 바뀝니다.
+//
+// MAIN world 에서 돌아야 하는 이유: content script 의 기본 격리 환경(ISOLATED)은
+// 자기만의 `fetch` 를 가집니다. 페이지의 `fetch` 를 바꾸려면 페이지 안에 있어야 합니다.
+
+(() => {
+  'use strict';
+
+  const SITE = location.hostname.includes('claude.ai') ? 'claude.ai' : 'chatgpt.com';
+
+  /// 응답 생성 요청인지 판별합니다.
+  ///
+  /// 이 목록이 깨지면 확장이 조용히 멈춥니다. 그래서 넓게 잡고,
+  /// 못 알아본 요청은 그냥 무시합니다(오탐보다 미탐이 안전).
+  const COMPLETION_PATTERNS = [
+    /\/api\/organizations\/[^/]+\/chat_conversations\/[^/]+\/completion/, // claude.ai
+    /\/api\/organizations\/[^/]+\/chat_conversations\/[^/]+\/retry_completion/,
+    /\/backend-api\/conversation$/,                                       // chatgpt.com
+    /\/backend-api\/f\/conversation$/,
+  ];
+
+  const isCompletion = (url) => {
+    if (!url) return false;
+    try {
+      const path = new URL(url, location.origin).pathname;
+      return COMPLETION_PATTERNS.some((re) => re.test(path));
+    } catch {
+      return false;
+    }
+  };
+
+  /// 대화 ID. 세션을 구분하는 키입니다.
+  /// URL 에서 못 뽑으면 탭 단위로 묶습니다.
+  const conversationId = () => {
+    const m = location.pathname.match(/\/(?:chat|c)\/([0-9a-f-]{16,})/i);
+    return m ? m[1] : `tab-${location.pathname}`;
+  };
+
+  /// 대화 제목. 문서 제목에서 사이트 이름을 떼어냅니다.
+  const conversationTitle = () => {
+    const t = (document.title || '').replace(/\s*[-–|]\s*(ChatGPT|Claude).*$/i, '').trim();
+    return t || 'Untitled';
+  };
+
+  let sequence = 0;
+
+  const emit = (state, detail) => {
+    console.log('[Agent Pulse] →', state, detail || '');
+    window.postMessage({
+      source: 'agent-pulse',
+      payload: {
+        site: SITE,
+        conversationId: conversationId(),
+        state,                       // generating | complete | error
+        title: conversationTitle(),
+        detail: detail || undefined,
+        url: location.href,
+        seq: ++sequence,
+      },
+    }, location.origin);
+  };
+
+  /// 스트림이 끝날 때까지 지켜보다가 complete 를 쏩니다.
+  ///
+  /// 본문을 `clone()` 으로 읽는 이유: 원본 응답은 페이지가 그대로 쓰게 두어야 합니다.
+  /// 새 Response 를 만들어 돌려주면 `res.url` 같은 속성이 사라져서
+  /// 사이트가 오작동할 수 있습니다.
+  const watchStream = async (response) => {
+    try {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bytes = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value?.length || 0;
+
+        // 이미 스트림을 읽고 있으므로, 한도 이벤트도 공짜로 볼 수 있습니다.
+        // (대화 내용은 보지 않습니다 — 한도 키가 있는 줄만 골라냅니다.)
+        if (value && window.__agentPulseScanStream) {
+          try {
+            window.__agentPulseScanStream(decoder.decode(value, { stream: true }));
+          } catch { /* 탐색은 절대 본 기능을 방해하면 안 됩니다 */ }
+        }
+      }
+      // 한 바이트도 안 왔으면 정상 완료로 보기 어렵습니다.
+      emit(bytes > 0 ? 'complete' : 'error', bytes > 0 ? undefined : 'empty response');
+    } catch (e) {
+      // 사용자가 중단했거나 연결이 끊긴 경우도 여기로 옵니다.
+      emit('error', String(e && e.message ? e.message : e).slice(0, 80));
+    }
+  };
+
+  // ── fetch 감싸기 ────────────────────────────────────────────────
+  const originalFetch = window.fetch;
+
+  window.fetch = function (...args) {
+    let url;
+    try {
+      url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
+    } catch { /* ignore */ }
+
+    if (!isCompletion(url)) {
+      // 패턴이 안 맞았지만 "대화 요청처럼 생긴" 주소는 찍어둡니다.
+      // 사이트가 엔드포인트를 바꾸면 여기서 바로 드러납니다.
+      if (url && /conversation|completion|chat/i.test(String(url))) {
+        console.log('[Agent Pulse] (무시됨) ' + new URL(url, location.origin).pathname);
+      }
+      return originalFetch.apply(this, args);
+    }
+
+    console.log('[Agent Pulse] ▶ generating —', new URL(url, location.origin).pathname);
+    emit('generating');
+
+    return originalFetch.apply(this, args).then(
+      (response) => {
+        if (!response.ok) {
+          emit('error', `HTTP ${response.status}`);
+          return response;
+        }
+        if (response.body) {
+          // clone 은 원본을 건드리지 않습니다.
+          watchStream(response.clone());
+        } else {
+          emit('complete');
+        }
+        return response;
+      },
+      (error) => {
+        emit('error', String(error && error.message ? error.message : error).slice(0, 80));
+        throw error;
+      }
+    );
+  };
+
+  // ── EventSource 감싸기 (일부 경로가 씁니다) ──────────────────────
+  const OriginalEventSource = window.EventSource;
+  if (OriginalEventSource) {
+    window.EventSource = function (url, config) {
+      const source = new OriginalEventSource(url, config);
+      if (isCompletion(url)) {
+        emit('generating');
+        source.addEventListener('error', () => emit('error', 'stream error'));
+        source.addEventListener('done', () => emit('complete'));
+      }
+      return source;
+    };
+    window.EventSource.prototype = OriginalEventSource.prototype;
+  }
+
+
+  // ───────────────────────────────────────────────────────────
+  // 사용량 탐색 모드
+  //
+  // 목적: claude.ai / ChatGPT 가 한도 정보를 **어떤 모양으로** 내려주는지
+  // 눈으로 확인하는 것. 공개 문서가 없으므로 추측 대신 실물을 봅니다.
+  //
+  // 확인이 끝나면 DISCOVER 를 false 로 바꾸고 파서를 확정합니다.
+  // ───────────────────────────────────────────────────────────
+  const DISCOVER = true;
+
+  /// 한도 정보가 있을 법한 주소. 넓게 잡습니다 — 못 보는 것보다 낫습니다.
+  const USAGE_URL = /(usage|limits?|rate_limit|subscription|bootstrap|account)/i;
+  /// 한도처럼 생긴 키.
+  const LIMIT_KEY = /(limit|quota|remaining|resets?_at|reset_at|utilization|allowance|tier)/i;
+  /// 한도처럼 생긴 **응답 헤더** 이름.
+  /// `anthropic-ratelimit-requests-remaining` 같은 것들입니다.
+  const HEADER_KEY = /(ratelimit|rate-limit|x-usage|usage-|quota|retry-after)/i;
+
+  const seenShapes = new Set();
+
+  /// 객체를 훑어 한도처럼 생긴 부분만 골라냅니다.
+  /// ⚠️ 대화 내용은 절대 로그에 남기지 않습니다 — 키 이름과 숫자만 봅니다.
+  const findLimits = (obj, path = '', out = [], depth = 0) => {
+    if (depth > 6 || obj === null || typeof obj !== 'object') return out;
+    for (const [k, v] of Object.entries(obj)) {
+      const here = path ? path + '.' + k : k;
+      if (LIMIT_KEY.test(k)) {
+        out.push([here, (v === null || typeof v !== 'object')
+          ? v
+          : JSON.stringify(v).slice(0, 300)]);
+      } else if (typeof v === 'object') {
+        findLimits(v, here, out, depth + 1);
+      }
+    }
+    return out;
+  };
+
+  // 콘솔뿐 아니라 전역에도 쌓아둡니다.
+  // 개발자 도구를 열지 않고도 밖에서 읽어갈 수 있게 하기 위해서입니다.
+  window.__agentPulseFindings = window.__agentPulseFindings || [];
+
+  const report = (source, found) => {
+    if (!found.length) return;
+    const key = source + '|' + found.map(function (x) { return x[0]; }).join(',');
+    if (seenShapes.has(key)) return;
+    seenShapes.add(key);
+
+    const finding = {
+      source: source,
+      at: new Date().toISOString(),
+      fields: found.map(function (x) { return { path: x[0], value: x[1] }; })
+    };
+    window.__agentPulseFindings.push(finding);
+
+    // 팝업에서 볼 수 있도록 확장 쪽으로도 보냅니다.
+    // (개발자 도구를 열지 않고 확인할 수 있어야 합니다.)
+    window.postMessage({ source: 'agent-pulse-discovery', finding: finding }, location.origin);
+
+    console.log(
+      '%c[Agent Pulse · 사용량 발견]%c ' + source,
+      'background:#0CA30C;color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',
+      'color:inherit'
+    );
+    console.table(found.map(function (x) { return { path: x[0], value: x[1] }; }));
+  };
+
+  /// 스트림 청크에서 한도 이벤트를 찾습니다. watchStream 이 호출합니다.
+  window.__agentPulseScanStream = function (text) {
+    if (!DISCOVER || !text) return;
+    for (const line of text.split('\n')) {
+      if (line.indexOf('data:') !== 0) continue;
+      if (!LIMIT_KEY.test(line)) continue;
+      try {
+        const json = JSON.parse(line.slice(5).trim());
+        report('SSE:' + (json.type || '?'), findLimits(json));
+      } catch { /* 잘린 청크는 무시 */ }
+    }
+  };
+
+  // 사용량 관련 엔드포인트 응답도 훑습니다.
+  // (위에서 이미 fetch 를 감쌌으므로 그 위에 한 겹 더 얹습니다.)
+  if (DISCOVER) {
+    const beforeSniff = window.fetch;
+    window.fetch = function (...args) {
+      const result = beforeSniff.apply(this, args);
+      let url;
+      try {
+        url = typeof args[0] === 'string' ? args[0] : args[0] && args[0].url;
+      } catch { /* ignore */ }
+
+      // ⚠️ 주소 필터를 너무 좁게 잡으면 정작 있는 걸 못 봅니다.
+      //    claude.ai 는 엔드포인트 이름에 `usage`/`limit` 이 안 들어가도
+      //    한도 정보를 실어 보낼 수 있어서, `/api/` 는 전부 훑습니다.
+      const path = url ? String(url) : '';
+      const worthChecking = path && (USAGE_URL.test(path) || path.indexOf('/api/') !== -1);
+
+      if (worthChecking) {
+        result.then(function (res) {
+          if (!res.ok) return;
+          const where = new URL(url, location.origin).pathname;
+
+          // ── 헤더부터 봅니다 ──────────────────────────────────
+          //
+          // ⚠️ 처음엔 본문만 봤습니다. **큰 실수였습니다.**
+          //    Anthropic 은 한도 정보를 `anthropic-ratelimit-*` 같은
+          //    **응답 헤더**로 내려주는 경우가 많습니다.
+          //    본문만 뒤지면 바로 눈앞에 있는 걸 놓칩니다.
+          try {
+            const headerHits = [];
+            res.headers.forEach(function (value, name) {
+              if (HEADER_KEY.test(name)) headerHits.push([name, value]);
+            });
+            if (headerHits.length) report(where + ' (headers)', headerHits);
+          } catch { /* ignore */ }
+
+          // ── 그다음 본문 ─────────────────────────────────────
+          const type = res.headers.get('content-type') || '';
+          if (type.indexOf('json') === -1) return;
+          res.clone().json()
+            .then(function (json) {
+              report(where, findLimits(json));
+            })
+            .catch(function () {});
+        }).catch(function () {});
+      }
+      return result;
+    };
+
+    console.log(
+      '%c[Agent Pulse]%c 사용량 탐색 모드 — claude.ai 에서 아무거나 물어보세요',
+      'background:#0CA30C;color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',
+      'color:inherit'
+    );
+  }
+
+  console.log('%c[Agent Pulse]%c 감시 시작 — ' + SITE,
+              'background:#D97757;color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',
+              'color:inherit');
+})();

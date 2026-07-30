@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Pulse</title>
+<style>
+  /* Astryx Neutral — macOS 앱과 같은 토큰을 씁니다 */
+  :root {
+    color-scheme: dark;
+    --popover: #1B1B1B;
+    --border: rgba(255,255,255,0.10);
+    --divider: rgba(255,255,255,0.08);
+    --text: #FAFAFA;
+    --muted: #A3A3A3;
+    --subtle-bg: rgba(255,255,255,0.10);
+    --accent-bg: #EBEBEB;
+    --accent-fg: #171717;
+    --good: #0CA30C;
+    --bad: #D03B3B;
+    --warn: #FDCF4F;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --popover: #FFFFFF;
+      --border: #EBEBEB;
+      --divider: #EBEBEB;
+      --text: #171717;
+      --muted: #737373;
+      --subtle-bg: rgba(0,0,0,0.06);
+      --accent-bg: #262626;
+      --accent-fg: #FFFFFF;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    width: 300px;
+    margin: 0;
+    padding: 14px;
+    background: var(--popover);
+    color: var(--text);
+    font: 14px/1.5 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 12px; margin-bottom: 12px;
+    border-bottom: 1px solid var(--divider);
+  }
+  h1 { font-size: 14px; font-weight: 600; margin: 0; }
+
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--good); }
+  .dot.bad { background: var(--bad); }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  input[type=text] {
+    width: 100%; padding: 7px 10px; margin-bottom: 4px;
+    background: var(--subtle-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--muted); }
+
+  .hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; }
+  code {
+    background: var(--subtle-bg); padding: 1px 4px; border-radius: 4px;
+    font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+    user-select: all; cursor: text;
+  }
+
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; }
+  .row span { font-size: 13px; }
+
+  button {
+    width: 100%; padding: 8px; border: 0; border-radius: 9999px;
+    background: var(--accent-bg); color: var(--accent-fg);
+    font: 600 12px/1 'Figtree', -apple-system, sans-serif;
+    cursor: pointer;
+  }
+  button:active { opacity: .8; }
+  button.secondary { background: var(--subtle-bg); color: var(--text); }
+
+  .sites { font-size: 12px; color: var(--muted); margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
+  .sites div { display: flex; justify-content: space-between; padding: 3px 0; }
+
+  .discover { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
+  .dhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .dhead span { font-size: 12px; font-weight: 600; }
+  .tiny { width: auto; padding: 3px 10px; font-size: 11px; background: var(--subtle-bg); color: var(--text); }
+  #findings { max-height: 220px; overflow-y: auto; }
+  .finding { margin-bottom: 8px; }
+  .finding .src {
+    font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--good); word-break: break-all;
+  }
+  .finding .field {
+    display: flex; gap: 6px; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted); padding: 1px 0;
+  }
+  .finding .field b { color: var(--text); font-weight: 500; word-break: break-all; }
+  .finding .field i { font-style: normal; margin-left: auto; white-space: nowrap; }
+
+  #message { font-size: 12px; margin: 10px 0 0; min-height: 16px; }
+  #message.ok { color: var(--good); }
+  #message.bad { color: var(--bad); }
+
+  /* 스위치 */
+  .switch { position: relative; width: 34px; height: 20px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; border-radius: 9999px;
+    background: var(--subtle-bg); transition: .15s; cursor: pointer;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px;
+    border-radius: 50%; background: var(--text); transition: .15s;
+  }
+  .switch input:checked + .slider { background: var(--good); }
+  .switch input:checked + .slider::before { transform: translateX(14px); background: #fff; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Agent Pulse</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">확인 중…</span></div>
+  </header>
+
+  <div class="row">
+    <span>Watching tabs</span>
+    <label class="switch">
+      <input type="checkbox" id="enabled" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- ⚠️ 자동 연결이 먼저입니다.
+       토큰 붙여넣기는 자동이 안 될 때만 쓰는 뒷문으로 밀어뒀습니다.
+       터미널에서 복사해 오라는 안내를 첫 화면에 두면 거기서 대부분 멈춥니다. -->
+  <button id="pair">앱에서 자동 연결</button>
+  <p class="hint" style="text-align:center;margin-top:6px">
+    앱 설정에서 <b>크롬 확장 연결</b>을 먼저 누르세요
+  </p>
+
+  <p id="message"></p>
+
+  <details style="margin-top:10px">
+    <summary class="hint" style="cursor:pointer">직접 입력</summary>
+    <div style="margin-top:8px">
+      <label for="token">Pairing token</label>
+      <input type="text" id="token" placeholder="앱 설정에서 확인" spellcheck="false">
+      <p class="hint"><code>cat ~/.agent-pulse/token</code></p>
+      <button id="test">연결 확인</button>
+    </div>
+  </details>
+
+  <div class="sites">
+    <div><span>claude.ai</span><span id="lastClaude">—</span></div>
+    <div><span>chatgpt.com</span><span id="lastGpt">—</span></div>
+  </div>
+
+  <!-- 사용량 탐색 결과 — 한도 정보가 어떤 모양으로 오는지 확인용 -->
+  <div class="discover" id="discoverBox" hidden>
+    <div class="dhead">
+      <span>사용량 발견</span>
+      <button id="copyFindings" class="tiny">복사</button>
+    </div>
+    <div id="findings"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
