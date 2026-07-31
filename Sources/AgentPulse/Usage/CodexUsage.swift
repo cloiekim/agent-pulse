@@ -30,7 +30,7 @@ enum CodexUsage {
         let decoder = JSONDecoder()
 
         UsageBlock.scanRecentLines(root: sessionsRoot,
-                                   modifiedWithin: UsageBlock.duration * 2) { line in
+                                   modifiedWithin: UsageBlock.duration * 2) { line, url in
             guard let row = try? decoder.decode(Row.self, from: line),
                   row.type == "event_msg",
                   let tokens = row.payload?.info?.last_token_usage?.total_tokens,

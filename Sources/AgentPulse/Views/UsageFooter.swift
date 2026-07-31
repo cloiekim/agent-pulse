@@ -56,28 +56,101 @@ private struct CompactRow: View {
     let provider: UsageQuota.Provider
     let quota: UsageQuota
 
+    @State private var expanded = false
+
     var body: some View {
-        HStack(spacing: 6) {
-            BrandMark(agent: provider.iconAgent)
-                .frame(width: 12, height: 12)
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    BrandMark(agent: provider.iconAgent)
+                        .frame(width: 12, height: 12)
 
-            Text(provider.displayName)
-                .font(Theme.supporting(.semibold))
-                .foregroundStyle(theme.textPrimary)
-                .fixedSize()
+                    Text(provider.displayName)
+                        .font(Theme.supporting(.semibold))
+                        .foregroundStyle(theme.textPrimary)
+                        .fixedSize()
 
-            Spacer(minLength: 8)
+                    Spacer(minLength: 8)
 
-            Text(quota.valueText(loc))
-                .font(Theme.supporting())
-                .foregroundStyle(theme.textSecondary)
-                .lineLimit(1)
-                // 한국어는 같은 뜻이 더 길어서 좁은 화면에선 살짝 줄입니다.
-                .minimumScaleFactor(0.85)
+                    Text(quota.valueText(loc))
+                        .font(Theme.supporting())
+                        .foregroundStyle(theme.textSecondary)
+                        .lineLimit(1)
+                        // 한국어는 같은 뜻이 더 길어서 좁은 화면에선 살짝 줄입니다.
+                        .minimumScaleFactor(0.85)
+
+                    if !quota.breakdown.isEmpty {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(theme.textSecondary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(quota.breakdown.isEmpty)
+
+            if expanded, !quota.breakdown.isEmpty {
+                BreakdownList(slices: quota.breakdown, tint: provider.tint)
+            }
         }
         .help(quota.tooltip(loc))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(provider.displayName): \(quota.valueText(loc))")
+    }
+}
+
+/// 프로젝트별 소비량. 가로 막대 + 이름 + 값.
+///
+/// ⚠️ 형식을 고른 이유:
+/// 하는 일이 "크기 비교(많이 쓴 순)" 이므로 가로 막대가 맞습니다.
+/// 길이가 이미 크기를 말하므로 **색은 한 가지만** 씁니다 —
+/// 항목마다 다른 색을 주면 색이 순위를 뜻하는 것처럼 읽혀서 거짓 정보가 됩니다.
+///
+/// 이름·숫자는 텍스트 색을 씁니다. 막대 색을 글자에 쓰면 대비가 무너집니다.
+private struct BreakdownList: View {
+    @Environment(\.colorScheme) private var systemScheme
+    private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
+
+    let slices: [UsageQuota.Slice]
+    let tint: Color
+
+    private var maxTokens: Int { max(slices.first?.tokens ?? 1, 1) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(slices) { slice in
+                HStack(spacing: 8) {
+                    Text(slice.name)
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(width: 96, alignment: .leading)
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            // 막대 끝은 4px 라운드, 바닥선에 붙여 그립니다.
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(tint.opacity(0.16))
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(tint.opacity(0.75))
+                                .frame(width: max(3, geo.size.width
+                                        * CGFloat(slice.tokens) / CGFloat(maxTokens)))
+                        }
+                    }
+                    .frame(height: 6)
+
+                    Text(UsageQuota.compact(slice.tokens))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.textSecondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.trailing, 2)
+        .padding(.bottom, 2)
     }
 }
 

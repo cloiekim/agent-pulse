@@ -73,7 +73,10 @@ enum UsageBlock {
         root: URL,
         extension ext: String = "jsonl",
         modifiedWithin seconds: TimeInterval,
-        handle: (Data) -> Void
+        // ⚠️ 파일 경로도 같이 넘깁니다.
+        //    Claude Code 는 프로젝트별로 폴더가 나뉘어 있어서,
+        //    경로가 곧 "어느 프로젝트가 썼나" 에 대한 답입니다.
+        handle: (Data, URL) -> Void
     ) {
         let cutoff = Date().addingTimeInterval(-seconds)
         let fm = FileManager.default
@@ -99,7 +102,7 @@ enum UsageBlock {
             guard let data = try? file.readToEnd(), !data.isEmpty else { continue }
 
             for line in data.split(separator: UInt8(ascii: "\n")) where line.count > 40 {
-                handle(Data(line))
+                handle(Data(line), url)
             }
         }
     }

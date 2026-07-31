@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// 하단 usage 블록에 들어가는 한 줄.
 ///
@@ -38,6 +39,18 @@ struct UsageQuota: Identifiable, Codable, Equatable {
         case today
     }
     var scope: Scope = .window
+
+    /// 프로젝트별 소비 내역. 많이 쓴 순.
+    ///
+    /// ⚠️ 왜 넣었나: 총량만 보면 "많이 썼네" 로 끝납니다.
+    /// 어느 작업이 태웠는지 알면 다음에 어디를 아낄지 판단할 수 있습니다.
+    /// 다만 **접어둡니다** — 흘긋 보는 자리에 기본으로 있으면 시끄럽습니다.
+    struct Slice: Identifiable, Codable, Equatable {
+        var name: String
+        var tokens: Int
+        var id: String { name }
+    }
+    var breakdown: [Slice] = []
     /// 이 값을 언제 읽었는가. 오래되면 흐리게 표시합니다.
     var readAt: Date = Date()
 
@@ -60,6 +73,16 @@ struct UsageQuota: Identifiable, Codable, Equatable {
             case .codex:      "Codex"
             case .claudeWeb:  "Claude"
             case .openai:     "ChatGPT"
+            }
+        }
+
+        /// 내역 막대 색. **브랜드당 한 가지만** 씁니다.
+        /// 항목마다 색을 바꾸면 색이 순위를 뜻하는 것처럼 읽혀서 거짓말이 됩니다.
+        /// 길이가 이미 크기를 말하므로 색은 "누구 것인가" 만 담당합니다.
+        var tint: Color {
+            switch self {
+            case .claudeCode, .claudeWeb: .hex(0xD97757)
+            case .codex, .openai:         .hex(0x10A37F)
             }
         }
 
