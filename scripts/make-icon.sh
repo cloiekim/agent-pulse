@@ -20,6 +20,9 @@ OUT=Resources/AgentPulse.icns
 
 [[ -f "$SRC" ]] || { echo "❌ $SRC 이 없습니다. 1024×1024 PNG 를 거기 두세요."; exit 1; }
 
+# ⚠️ macOS 앱 아이콘은 라이트/다크로 안 바뀝니다 — 하나만 씁니다.
+#    라이트 버전(icon-1024-light.png)은 나중에 웹·문서용으로 보관만 합니다.
+
 rm -rf "$SET"; mkdir -p "$SET"
 
 # macOS 아이콘 세트가 요구하는 이름과 크기 (@2x 는 두 배 크기의 같은 그림)

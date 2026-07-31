@@ -71,6 +71,10 @@ struct MenuPanel: View {
                 EmptyStateView()
             }
         }
+        // 팝오버가 열려 있는 동안은 메뉴바 캡슐을 단색으로 바꿉니다.
+        // 시스템 하이라이트와 색이 겹치면 탁해집니다.
+        .onAppear { MenuBarPresenter.shared.menuOpen = true }
+        .onDisappear { MenuBarPresenter.shared.menuOpen = false }
         .frame(width: Theme.popoverWidth)
         .background(theme.popover)
         .clipShape(RoundedRectangle(cornerRadius: Theme.containerRadius, style: .continuous))

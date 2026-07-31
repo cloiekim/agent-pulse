@@ -31,8 +31,8 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
     func sample(_ loc: Loc) -> String {
         switch self {
         case .icon:  ""
-        case .count: "2 ●"
-        case .text:  loc("Working 2", "작업 중 2")
+        case .count: "3"
+        case .text:  loc("3 running", "3 실행")
         }
     }
 
@@ -61,87 +61,28 @@ struct MenuBarLabel: View {
     private var settings: AppSettings { AppSettings.shared }
     private var style: MenuBarStyle { settings.menuBarStyle }
     private var loc: Loc { settings.loc }
+    private var presenter: MenuBarPresenter { MenuBarPresenter.shared }
 
     var body: some View {
-        Image(nsImage: PulseIcon.menuBar)
-        if let suffix { Text(suffix) }
-    }
-
-    private var suffix: String? {
-        switch style {
-        case .icon:  return nil
-        case .count: return countSuffix
-        case .text:  return textSuffix
-        }
-    }
-
-    // MARK: 숫자 모드
-
-    /// 디자인 4a: 아이콘 + 실행 개수 + 주의 점.
-    ///
-    /// `activeCount` 는 승인 대기·입력 대기도 포함합니다.
-    /// 승인 대기로 넘어가는 순간 숫자가 사라지면 "몇 개 돌리고 있나"에 답을 못 하니까요.
-    private var countSuffix: String? {
-        let n = store.activeCount
-        let attention = !store.needsAttention.isEmpty
-
-        switch (n, attention) {
-        case (0, false): return nil
-        case (0, true):  return " ●"
-        case (let n, false): return " \(n)"
-        case (let n, true):  return " \(n) ●"
-        }
-    }
-
-    // MARK: 텍스트 모드
-
-    /// 가장 급한 것 **하나만** 말합니다.
-    ///
-    /// 메뉴바는 대시보드가 아닙니다. "지금 네가 필요한가, 아닌가"에만 답하면 되고,
-    /// 자세한 건 클릭해서 보는 겁니다. 여러 상태를 한 줄에 늘어놓으면
-    /// 폭만 먹고 아무것도 전달이 안 됩니다.
-    private var textSuffix: String? {
-        let approvals = store.sessions.filter { $0.state == .needsApproval }.count
-        let inputs    = store.sessions.filter { $0.state == .waitingInput }.count
-        let failures  = store.sessions.filter { $0.state == .failed }.count
-        let running   = store.running.count
-
-        // ⚠️ 어휘는 메뉴바·헤더 칩·행 알약이 **반드시 같아야 합니다.**
-        //    같은 상태를 `Working` / `1 running` / `Running` 세 가지로 부르면
-        //    사용자는 서로 다른 일이 벌어지고 있다고 읽습니다.
-        //    디자인 4a 가 "running" 을 쓰므로 거기에 맞춥니다.
-        let attention = approvals + inputs
-
-        if attention > 0 {
-            return " " + (attention == 1
-                ? loc("Needs you", "확인 필요")
-                : loc("Needs you \(attention)", "확인 필요 \(attention)"))
-        }
-        if failures > 0 {
-            return " " + (failures == 1
-                ? loc("Failed", "실패")
-                : loc("Failed \(failures)", "실패 \(failures)"))
-        }
-        if running > 0 {
-            return " " + (running == 1
-                ? loc("Running", "실행 중")
-                : loc("Running \(running)", "실행 중 \(running)"))
-        }
-
-        // 아무 일도 없을 때도 한 마디는 합니다.
+        // ⚠️ 캡슐·글리프·라벨을 **이미지 하나**로 그려서 넘깁니다.
+        //    `MenuBarExtra` label 에 임의의 SwiftUI 뷰를 넣으면 폭이 0 으로 잡혀
+        //    아이템이 아예 안 보일 수 있습니다. (MenuBarRenderer 주석 참고)
         //
-        // 완전히 침묵하면 "앱이 살아있긴 한가?" 를 확인할 방법이 없어서
-        // 사용자가 불안해집니다. 조용한 상태를 **명시적으로** 말해주는 편이
-        // 안심되고, 아이콘만 덩그러니 있는 것보다 읽기도 쉽습니다.
-        // 이것도 거슬리면 설정에서 Icon only 로 바꾸면 됩니다.
-        // ⚠️ 조용할 때는 **아무 글자도 쓰지 않습니다.**
-        //
-        //    예전엔 `Idle` / `대기 중` 을 띄웠는데, 그건 "할 말이 없다" 를
-        //    굳이 말로 하는 것입니다. 아이콘만 있으면 그게 이미 조용하다는 뜻이고,
-        //    메뉴바 폭도 아낍니다 — 아이콘이 잘려서 안 보이던 문제와 직결됩니다.
-        //
-        //    메뉴바 항목은 **보고할 게 없을 때 가장 작아야 합니다.**
-        return ""
+        //    store 프로퍼티를 body 안에서 읽어야 `@Observable` 추적이 걸립니다.
+        //    그래서 스냅샷 계산도 여기서 합니다.
+        let snapshot = MenuBarPresenter.Snapshot(
+            approvals: store.sessions.filter {
+                $0.state == .needsApproval || $0.state == .waitingInput
+            }.count,
+            failures: store.sessions.filter { $0.state == .failed }.count,
+            running: store.running.count
+        )
 
+        // ⚠️ 설정도 presenter 에서 읽습니다.
+        //    `AppSettings.shared` 를 직접 읽으면 이 라벨에서는 관찰이 안 걸립니다.
+        //    presenter 프로퍼티는 확실히 전파되므로 전부 그쪽으로 몰았습니다.
+        Image(nsImage: presenter.image)
+            .onAppear { presenter.update(to: snapshot) }
+            .onChange(of: snapshot) { _, next in presenter.update(to: next) }
     }
 }

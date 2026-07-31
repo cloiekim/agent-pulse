@@ -17,7 +17,11 @@ final class AppSettings {
     static let shared = AppSettings()
 
     var menuBarStyle: MenuBarStyle {
-        didSet { defaults.set(menuBarStyle.rawValue, forKey: Keys.menuBarStyle) }
+        didSet {
+            defaults.set(menuBarStyle.rawValue, forKey: Keys.menuBarStyle)
+            // 메뉴바는 AppSettings 를 관찰하지 못하므로 직접 밀어 넣습니다.
+            MenuBarPresenter.shared.style = menuBarStyle
+        }
     }
 
     var appearance: Appearance {
@@ -25,7 +29,10 @@ final class AppSettings {
     }
 
     var language: AppLanguage {
-        didSet { defaults.set(language.rawValue, forKey: Keys.language) }
+        didSet {
+            defaults.set(language.rawValue, forKey: Keys.language)
+            MenuBarPresenter.shared.language = language
+        }
     }
 
     var notificationsEnabled: Bool {
