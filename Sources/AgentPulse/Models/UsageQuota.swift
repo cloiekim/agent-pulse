@@ -51,6 +51,9 @@ struct UsageQuota: Identifiable, Codable, Equatable {
         var id: String { name }
     }
     var breakdown: [Slice] = []
+
+    /// 요금제 등급. 한도 숫자는 모르지만 **어느 기준인지**는 알 수 있습니다.
+    var planTier: String?
     /// 이 값을 언제 읽었는가. 오래되면 흐리게 표시합니다.
     var readAt: Date = Date()
 

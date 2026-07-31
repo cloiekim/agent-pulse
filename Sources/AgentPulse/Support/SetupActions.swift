@@ -49,6 +49,7 @@ enum SetupActions {
     static func run(_ surfaceID: String) {
         switch surfaceID {
         case "codex":      installCodex()
+        case "antigravity": runScript("install-antigravity-hooks.sh")
         case "claudeCode": installClaudeHooks()
         case "browser":    openExtensionSetup()
         default:           break
@@ -59,14 +60,17 @@ enum SetupActions {
     static func isActionable(_ surfaceID: String) -> Bool {
         switch surfaceID {
         case "codex":      find("install-codex-notify.sh") != nil
+        case "antigravity": find("install-antigravity-hooks.sh") != nil
         case "claudeCode": find("install-claude-hooks.sh") != nil
         case "browser":    true
         default:           false
         }
     }
 
-    private static func installCodex() {
-        guard let script = find("install-codex-notify.sh") else { return }
+    private static func installCodex() { runScript("install-codex-notify.sh") }
+
+    private static func runScript(_ name: String) {
+        guard let script = find(name) else { return }
         runInTerminal(script)
     }
 
@@ -102,6 +106,7 @@ enum SetupActions {
     static func command(for surfaceID: String) -> String? {
         switch surfaceID {
         case "codex":      "./install-codex-notify.sh"
+        case "antigravity": "./install-antigravity-hooks.sh"
         case "claudeCode": "./install-claude-hooks.sh"
         default:           nil
         }

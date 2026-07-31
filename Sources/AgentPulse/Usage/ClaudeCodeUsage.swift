@@ -58,7 +58,8 @@ enum ClaudeCodeUsage {
             measure: .count(used: total, unit: "tokens"),
             resetsAt: blockStart.addingTimeInterval(UsageBlock.duration),
             windowStart: blockStart,
-            breakdown: breakdown
+            breakdown: breakdown,
+            planTier: PlanTier.current()
         )
     }
 

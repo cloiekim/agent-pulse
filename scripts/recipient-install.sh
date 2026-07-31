@@ -5,7 +5,7 @@
 # 하는 일:
 #   1. /Applications 에 앱 설치
 #   2. macOS 격리 속성 제거 (서명 안 된 앱이라 필요)
-#   3. Claude Code / Codex 훅 연결 (설치돼 있는 경우만)
+#   3. Claude Code / Codex / Antigravity 훅 연결 (설치돼 있는 경우만)
 #   4. 크롬 확장 폴더를 Application Support 로 복사
 #   5. 페어링 토큰 출력 + 클립보드 복사
 
@@ -76,6 +76,17 @@ else
   warn "Codex 가 없어 건너뜁니다"
 fi
 
+# Antigravity CLI (구 Gemini CLI). 설정 폴더가 있으면 있는 것으로 봅니다.
+if command -v antigravity >/dev/null 2>&1 || [[ -d "$HOME/.gemini" ]]; then
+  if ./install-antigravity-hooks.sh >/dev/null 2>&1; then
+    ok "Antigravity 연결됨 (승인 대기는 감지 불가 — 해당 훅이 없습니다)"
+  else
+    warn "Antigravity 연결 실패 — ./install-antigravity-hooks.sh 를 직접 실행해보세요"
+  fi
+else
+  warn "Antigravity 가 없어 건너뜁니다"
+fi
+
 say "4/5  크롬 확장 준비"
 rm -rf "$SUPPORT/chrome-extension"
 cp -R chrome-extension "$SUPPORT/"
@@ -108,6 +119,7 @@ cat <<EOF
   rm -rf "/Applications/AgentPulse.app" "$SUPPORT" ~/.agent-pulse
   ./install-claude-hooks.sh --uninstall
   ./install-codex-notify.sh --uninstall
+  ./install-antigravity-hooks.sh --uninstall
   (크롬 확장은 chrome://extensions 에서 삭제)
 
 EOF

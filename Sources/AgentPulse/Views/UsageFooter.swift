@@ -72,6 +72,18 @@ private struct CompactRow: View {
                         .foregroundStyle(theme.textPrimary)
                         .fixedSize()
 
+                    // 요금제 등급. 한도 숫자는 모르지만 **기준**은 알려줍니다.
+                    // 조용한 회색 알약으로 — 정보이지 경고가 아닙니다.
+                    if let tier = quota.planTier {
+                        Text(tier)
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.textSecondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(theme.subtleBg, in: Capsule())
+                            .fixedSize()
+                    }
+
                     Spacer(minLength: 8)
 
                     Text(quota.valueText(loc))

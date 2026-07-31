@@ -31,6 +31,10 @@ if [[ -f "$SETTINGS" ]] && grep -q "/hook/claude" "$SETTINGS" 2>/dev/null; then
 fi
 
 # ── 3. Codex notify 제거 ────────────────────────────────────
+if [[ -f ./install-antigravity-hooks.sh ]]; then
+  ./install-antigravity-hooks.sh --uninstall >/dev/null 2>&1 && echo "· Antigravity 훅 제거"
+fi
+
 if [[ -f ./install-codex-notify.sh ]]; then
   ./install-codex-notify.sh --uninstall >/dev/null 2>&1 && echo "· Codex notify 제거"
 fi

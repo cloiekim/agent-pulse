@@ -32,6 +32,10 @@ enum ConnectionStatus {
                     name: "Codex",
                     connected: codexNotifyInstalled,
                     hint: loc("run install-codex-notify.sh", "install-codex-notify.sh 실행 필요")),
+            Surface(id: "antigravity",
+                    name: "Antigravity",
+                    connected: antigravityHooksInstalled,
+                    hint: loc("run install-antigravity-hooks.sh", "install-antigravity-hooks.sh 실행 필요")),
             Surface(id: "browser",
                     name: loc("Browser tabs", "브라우저 탭"),
                     connected: browserExtensionSeen,
@@ -56,6 +60,11 @@ enum ConnectionStatus {
     ///    실제로 그 상황이 나왔습니다.
     static var codexNotifyInstalled: Bool {
         contains(path: ".codex/config.toml", needle: "--- agent-pulse ---")
+    }
+
+    /// `~/.gemini/config/hooks.json` 에 우리 브릿지가 걸려 있는가.
+    static var antigravityHooksInstalled: Bool {
+        contains(path: ".gemini/config/hooks.json", needle: "agent-pulse-antigravity")
     }
 
     /// 크롬 확장에서 이벤트를 **한 번이라도** 받아본 적이 있는가.

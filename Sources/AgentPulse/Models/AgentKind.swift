@@ -10,6 +10,8 @@ enum AgentKind: String, Codable, CaseIterable, Identifiable {
     case codex
     case claudeWeb
     case chatgptWeb
+    /// Google Antigravity CLI. (Gemini CLI 는 여기로 통합됐습니다)
+    case antigravity
 
     var id: String { rawValue }
 
@@ -20,13 +22,14 @@ enum AgentKind: String, Codable, CaseIterable, Identifiable {
         case .codex:      "Codex"
         case .claudeWeb:  "Claude"
         case .chatgptWeb: "ChatGPT"
+        case .antigravity: "Antigravity"
         }
     }
 
     /// 터미널인지 브라우저인지. 딥링크 방식이 갈립니다.
     var surface: Surface {
         switch self {
-        case .claudeCode, .codex: .terminal
+        case .claudeCode, .codex, .antigravity: .terminal
         case .claudeWeb, .chatgptWeb: .browser
         }
     }
@@ -44,6 +47,8 @@ enum AgentKind: String, Codable, CaseIterable, Identifiable {
         case .codex:      "chevron.left.forwardslash.chevron.right"
         case .claudeWeb:  "bubble.left"
         case .chatgptWeb: "bubble.left.and.bubble.right"
+        // 브랜드 에셋이 없어 임시로 SF Symbol 을 씁니다.
+        case .antigravity: "sparkle"
         }
     }
 }

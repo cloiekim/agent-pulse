@@ -135,6 +135,67 @@ enum EventMapper {
         )
     }
 
+    /// Antigravity CLI 훅.
+    ///
+    /// Claude Code 와 훅 이름이 거의 같습니다 — 구글이 같은 어휘를 골랐습니다.
+    /// 다만 세션 ID 필드 이름이 `conversationId` 이고,
+    /// 작업 폴더는 `workspacePaths` 배열로 옵니다 (여러 폴더를 걸 수 있어서).
+    ///
+    /// ⚠️ 승인 대기는 **감지하지 못합니다.**
+    /// Antigravity 에는 "권한이 필요하다" 는 알림 훅이 없습니다.
+    /// `PreToolUse` 가 `ask`/`force_ask` 를 **반환**해서 물어보게 하는 구조라,
+    /// 관찰하는 쪽에서는 그 순간을 알 수 없습니다.
+    /// 실행 중·완료·실패까지만 확실하게 잡습니다.
+    static func fromAntigravityHook(_ json: [String: Any]) -> AgentEvent? {
+        guard let hookName = json["hook_event_name"] as? String else { return nil }
+
+        let sessionID = (json["conversationId"] as? String)
+            ?? (json["conversation_id"] as? String)
+            ?? "antigravity"
+
+        let cwd = (json["cwd"] as? String)
+            ?? (json["workspacePaths"] as? [String])?.first
+
+        let toolName = (json["toolName"] as? String) ?? (json["tool_name"] as? String)
+
+        let state: SessionState
+        var detail: String? = toolName
+
+        switch hookName {
+        case "PreInvocation", "PreToolUse", "PostToolUse":
+            state = .running
+        case "PostInvocation":
+            state = .running
+        case "Stop":
+            // 오류 정보가 있으면 실패로 봅니다.
+            let error = ["error", "errorMessage", "error_message"]
+                .compactMap { json[$0] as? String }
+                .first { !$0.isEmpty }
+            state = error == nil ? .completed : .failed
+            detail = error
+        default:
+            return nil
+        }
+
+        let title = TranscriptTitles.title(
+            sessionID: sessionID,
+            transcriptPath: json["transcriptPath"] as? String
+        ) ?? AgentSession.projectName(from: cwd) ?? "Antigravity"
+
+        return AgentEvent(
+            agent: .antigravity,
+            sessionKey: sessionID,
+            toolName: toolName,
+            hookName: hookName,
+            state: state,
+            title: title,
+            cwd: cwd,
+            detail: detail,
+            origin: .terminal,
+            returnTarget: cwd.map { "agentpulse://terminal?cwd=\($0)" }
+        )
+    }
+
     // MARK: - Codex CLI notify
 
     /// Codex 는 `~/.codex/config.toml` 의 `notify = [...]` 로 지정한 프로그램을

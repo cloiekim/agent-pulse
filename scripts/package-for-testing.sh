@@ -63,6 +63,9 @@ done
 cp scripts/recipient-install.sh "$STAGE/install.sh"
 cp scripts/uninstall.sh "$STAGE/uninstall.sh"
 cp scripts/hooks_edit.py "$STAGE/hooks_edit.py"   # 설치 스크립트가 씁니다
+cp scripts/hooks_edit_antigravity.py "$STAGE/"
+cp scripts/install-antigravity-hooks.sh "$STAGE/"
+cp scripts/agent-pulse-antigravity.sh "$STAGE/"
 cp scripts/recipient-readme.txt "$STAGE/읽어주세요.txt"
 chmod +x "$STAGE"/*.sh
 

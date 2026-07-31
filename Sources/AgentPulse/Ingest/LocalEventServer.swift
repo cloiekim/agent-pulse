@@ -255,6 +255,7 @@ final class LocalEventServer {
         case "/hook/claude":  event = EventMapper.fromClaudeCodeHook(json)
         case "/hook/codex":   event = EventMapper.fromCodexNotify(json)
         case "/hook/browser": event = EventMapper.fromBrowserExtension(json)
+        case "/hook/antigravity": event = EventMapper.fromAntigravityHook(json)
         default:              return Self.reply(status: "404 Not Found")
         }
 
