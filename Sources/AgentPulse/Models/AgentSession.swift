@@ -20,6 +20,9 @@ struct AgentSession: Identifiable, Codable {
     ///    옵니다. 제목도, 걸린 시간도, 한 일도 없는 껍데기 세션입니다.
     ///    실제로 그런 게 다섯 개 쌓여서 목록이 `~ / Idle` 로 도배됐습니다.
     ///    **아무것도 안 한 세션은 정보가 아닙니다.**
+    /// 같은 사이트 안의 세부 표면 (`Claude Design` 등).
+    var product: String?
+
     var hasWorked = false
 
     /// 이 실패가 **우리 잘못이 아닌** 서버 쪽 문제인가.
@@ -28,9 +31,26 @@ struct AgentSession: Identifiable, Codable {
     ///   · 코드 오류 → 고쳐야 합니다
     ///   · 서버 오류 → **기다리면 됩니다.** 상태 페이지를 보는 게 유일한 행동입니다
     /// 그래서 구분해서 보여주는 게 실질적으로 도움이 됩니다.
+    /// 한도에 걸려 멈춘 것인가.
+    ///
+    /// ⚠️ 서버 오류와 **다르게** 다뤄야 합니다.
+    ///   · 서버 오류 → 곧 풀립니다. 상태 페이지를 봅니다
+    ///   · 한도 초과 → **정해진 시각까지 못 씁니다.** 볼 곳은 사용량입니다
+    ///
+    /// 그리고 `rate_limit` 이라는 API 코드를 그대로 보여주면 안 됩니다.
+    /// 사용자는 그게 무슨 뜻인지, 언제 풀리는지 알 수 없습니다.
+    var isRateLimited: Bool {
+        guard state == .failed, let detail else { return false }
+        let lowered = detail.lowercased()
+        return ["rate_limit", "rate limit", "429", "usage limit", "out of credit"]
+            .contains { lowered.contains($0) }
+    }
+
     var isServerError: Bool {
         guard state == .failed, let detail else { return false }
         let lowered = detail.lowercased()
+        // 한도 초과가 먼저 — 겹치면 그쪽이 더 정확한 설명입니다.
+        if isRateLimited { return false }
         return ["500", "502", "503", "529", "internal server",
                 "overloaded", "api error", "server error", "upstream"]
             .contains { lowered.contains($0) }
@@ -63,7 +83,7 @@ struct AgentSession: Identifiable, Codable {
     //    앞으로 필드를 추가할 때도 여기에 같은 방식으로 넣으세요.
 
     enum CodingKeys: String, CodingKey {
-        case agent, sessionKey, state, title, detail, cwd, returnTarget, origin, hasWorked
+        case agent, sessionKey, state, title, detail, cwd, returnTarget, origin, hasWorked, product
         case startedAt, lastEventAt
     }
 
@@ -78,6 +98,7 @@ struct AgentSession: Identifiable, Codable {
         returnTarget = try c.decodeIfPresent(String.self, forKey: .returnTarget)
         origin = try c.decodeIfPresent(SessionOrigin.self, forKey: .origin) ?? .terminal
         hasWorked = try c.decodeIfPresent(Bool.self, forKey: .hasWorked) ?? true
+        product = try c.decodeIfPresent(String.self, forKey: .product)
         startedAt = try c.decode(Date.self, forKey: .startedAt)
         lastEventAt = try c.decode(Date.self, forKey: .lastEventAt)
     }
@@ -93,6 +114,7 @@ struct AgentSession: Identifiable, Codable {
         self.cwd = event.cwd
         self.returnTarget = event.returnTarget
         self.origin = event.origin
+        self.product = event.product
         self.startedAt = event.timestamp
         self.lastEventAt = event.timestamp
     }
@@ -105,6 +127,7 @@ struct AgentSession: Identifiable, Codable {
         if let c = event.cwd { cwd = c }
         if let r = event.returnTarget { returnTarget = r }
         origin = event.origin
+        if let p = event.product { product = p }
         lastEventAt = event.timestamp
     }
 

@@ -56,6 +56,9 @@ struct BrandMark: View {
         switch agent {
         case .claudeCode, .claudeWeb: BrandPaths.claude
         case .codex, .chatgptWeb:     BrandPaths.openai
+        // 브랜드 벡터가 아직 없어 Claude 마크를 임시로 씁니다.
+        // (SessionRow 는 symbolName 을 쓰므로 실제 화면에는 거의 안 나옵니다)
+        case .antigravity:            BrandPaths.claude
         }
     }
 
@@ -67,6 +70,8 @@ struct BrandMark: View {
             .hex(0xD97757)
         case .codex, .chatgptWeb:
             scheme == .dark ? .hex(0xECECEF) : .hex(0x1C1E22)
+        case .antigravity:
+            .hex(0x4285F4)   // Google 파랑
         }
     }
 }

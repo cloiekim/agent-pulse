@@ -15,27 +15,45 @@ struct UsageFooter: View {
     let groups: [UsageGroup]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                // ⚠️ 항목이 하나뿐이면 헤더를 따로 두지 않습니다.
-                //    "Claude Code" 한 줄 + 값 한 줄 = 두 줄인데, 묶을 게 없는
-                //    헤더는 자리만 먹습니다. 여러 항목일 때만 헤더가 일을 합니다.
-                if group.quotas.count == 1, let quota = group.quotas.first,
-                   quota.barFraction == nil {
-                    CompactRow(provider: group.provider, quota: quota)
-                        .padding(.top, index == 0 ? 0 : 2)
-                } else {
+                // 회사가 바뀌는 자리에만 선을 넣습니다.
+                if index > 0 {
+                    Rectangle()
+                        .fill(theme.divider)
+                        .frame(height: 1)
+                        .padding(.vertical, 2)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    // ── 헤더: 회사 이름 + 요금제 ──────────────────
                     HStack(spacing: 6) {
                         BrandMark(agent: group.provider.iconAgent)
                             .frame(width: 12, height: 12)
-                        Text(group.provider.displayName)
+                        Text(group.provider.vendorName)
                             .font(Theme.supporting(.semibold))
                             .foregroundStyle(theme.textPrimary)
-                    }
-                    .padding(.top, index == 0 ? 0 : 2)
 
-                    ForEach(group.quotas) { quota in
+                        if let tier = group.quotas.compactMap(\.planTier).first {
+                            Text(tier)
+                                .font(.system(size: 10))
+                                .foregroundStyle(theme.textSecondary)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(theme.subtleBg, in: Capsule())
+                                .fixedSize()
+                        }
+                        Spacer(minLength: 0)
+                    }
+
+                    // ── 계정 한도 (퍼센트 막대) ──────────────────
+                    ForEach(group.meters) { quota in
                         QuotaRow(quota: quota)
+                    }
+
+                    // ── 도구별 사용량 (토큰 개수) ────────────────
+                    ForEach(group.counters) { quota in
+                        ToolRow(quota: quota)
                     }
                 }
             }
@@ -47,13 +65,12 @@ struct UsageFooter: View {
     }
 }
 
-/// 로고 + 이름 + 값을 한 줄에.
-private struct CompactRow: View {
+/// 도구 하나의 토큰 사용량. 눌러서 프로젝트별 내역을 펼칩니다.
+private struct ToolRow: View {
     @Environment(\.colorScheme) private var systemScheme
     private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
     private var loc: Loc { AppSettings.shared.loc }
 
-    let provider: UsageQuota.Provider
     let quota: UsageQuota
 
     @State private var expanded = false
@@ -64,34 +81,33 @@ private struct CompactRow: View {
                 withAnimation(.snappy(duration: 0.18)) { expanded.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    BrandMark(agent: provider.iconAgent)
-                        .frame(width: 12, height: 12)
-
-                    Text(provider.displayName)
-                        .font(Theme.supporting(.semibold))
-                        .foregroundStyle(theme.textPrimary)
+                    // 로고는 회사 헤더에 이미 있으므로 여기선 안 그립니다.
+                    // 대신 왼쪽 여백으로 "헤더에 속한 항목" 임을 보입니다.
+                    // 이름은 조용히, 값은 또렷하게.
+                    // 여기서 읽고 싶은 건 "얼마나 썼나" 지 도구 이름이 아닙니다.
+                    Text(quota.provider.displayName(loc))
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.textSecondary)
                         .fixedSize()
-
-                    // 요금제 등급. 한도 숫자는 모르지만 **기준**은 알려줍니다.
-                    // 조용한 회색 알약으로 — 정보이지 경고가 아닙니다.
-                    if let tier = quota.planTier {
-                        Text(tier)
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.textSecondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(theme.subtleBg, in: Capsule())
-                            .fixedSize()
-                    }
 
                     Spacer(minLength: 8)
 
                     Text(quota.valueText(loc))
-                        .font(Theme.supporting())
-                        .foregroundStyle(theme.textSecondary)
+                        .font(Theme.supporting(.medium))
+                        .foregroundStyle(theme.textPrimary)
                         .lineLimit(1)
-                        // 한국어는 같은 뜻이 더 길어서 좁은 화면에선 살짝 줄입니다.
-                        .minimumScaleFactor(0.85)
+                        // ⚠️ 잘리느니 작아지는 게 낫습니다.
+                        //    `resets...` 처럼 끝이 잘리면 정보가 통째로 사라지지만,
+                        //    글자가 조금 작아지는 건 읽는 데 지장이 없습니다.
+                        //    `Max 5x` 배지가 붙으면 자리가 더 좁아져서 여유가 필요합니다.
+                        // ⚠️ 가운데 생략(`tok…esets`)은 뒤 생략보다 나쁩니다.
+                        //    단어가 뒤섞여서 읽을 수 없는 글자가 됩니다.
+                        //
+                        //    그리고 0.65 까지 줄어들게 뒀더니 **너무 작아졌습니다.**
+                        //    요금제 배지를 헤더로 옮겨서 자리가 넉넉해졌으니
+                        //    거의 줄이지 않아도 됩니다.
+                        .minimumScaleFactor(0.92)
+                        .truncationMode(.tail)
 
                     if !quota.breakdown.isEmpty {
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -105,9 +121,13 @@ private struct CompactRow: View {
             .disabled(quota.breakdown.isEmpty)
 
             if expanded, !quota.breakdown.isEmpty {
-                BreakdownList(slices: quota.breakdown, tint: provider.tint)
+                BreakdownList(slices: quota.breakdown, tint: quota.provider.tint)
             }
         }
+        // ⚠️ 들여쓰기를 넣었다가 뺐습니다.
+        //    막대 행(5-hour·Weekly)은 왼쪽 끝에 붙는데 이 줄만 들여쓰면
+        //    **혼자 쑥 들어간 것처럼** 보입니다.
+        //    같은 헤더 밑에 있는 것들은 왼쪽을 맞추는 게 낫습니다.
         .help(quota.tooltip(loc))
     }
 }
@@ -182,25 +202,57 @@ private struct QuotaRow: View {
             //    값은 저 멀리 오른쪽에 붙은 이상한 모양이 됐습니다.
             //    묶어주는 게 없으면 갈라놓으면 안 됩니다.
             if let fraction = quota.barFraction {
-                HStack {
+                // ⚠️ 라벨·막대·값을 **한 줄**에 둡니다.
+                //    세로로 쌓으면 항목 하나에 두 줄씩 먹어서, 344px 팝오버에
+                //    두 개만 들어가도 아래 내용이 밀려납니다.
+                HStack(spacing: 8) {
+                    // ⚠️ 라벨은 **절대 자르지 않습니다.**
+                    //    `Sessi…` `Wee…` 는 아무 정보가 없습니다.
+                    //    막대는 짧아져도 비율을 읽는 데 지장이 없지만,
+                    //    잘린 단어는 무슨 말인지 알 수 없습니다.
+                    //    자를 게 있으면 막대를 자르지 라벨을 자르면 안 됩니다.
                     Text(quota.displayLabel(loc))
+                        .font(Theme.supporting())
                         .foregroundStyle(theme.textSecondary)
-                    Spacer(minLength: 8)
-                    Text(quota.valueText(loc))
-                        .foregroundStyle(theme.textPrimary)
-                        .fontWeight(.medium)
-                }
-                .font(Theme.supporting())
+                        .fixedSize()
+                        .frame(width: 52, alignment: .leading)
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(theme.trackBg)
-                        Capsule()
-                            .fill(theme.trackFill)
-                            .frame(width: fraction * geo.size.width)
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(theme.trackBg)
+                            Capsule()
+                                // 80% 를 넘으면 주의 색으로. 곧 막힌다는 뜻입니다.
+                                .fill(fraction >= 0.8 ? theme.attentionFg : theme.trackFill)
+                                .frame(width: max(3, fraction * geo.size.width))
+                        }
+                    }
+                    .frame(minWidth: 60, maxWidth: .infinity, minHeight: 5, maxHeight: 5)
+
+                    Text(quota.valueText(loc))
+                        .font(Theme.supporting())
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                        .fixedSize()
+
+                    // ⚠️ 흐리게만 하면 **못 알아챕니다.**
+                    //    실제로 20분 지난 값을 지금 값으로 읽고
+                    //    "다 안 썼다는데 왜 막히지?" 가 나왔습니다.
+                    //    흐림은 곁눈으로 놓치기 쉬우니 글자로도 말합니다.
+                    if quota.isStale {
+                        Text(loc("old", "옛값"))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(theme.attentionFg)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(theme.attentionBg, in: Capsule())
+                            .fixedSize()
                     }
                 }
-                .frame(height: 5)
+                .opacity(quota.isStale ? 0.55 : 1)
+                .help(quota.isStale
+                      ? loc("Last seen a while ago — open a claude.ai tab to refresh",
+                            "갱신된 지 좀 됐습니다 — claude.ai 탭을 열면 새로 읽습니다")
+                      : quota.tooltip(loc))
             } else {
                 // 막대가 없으면 한 줄로 읽히게 둡니다.
                 // `Used` 는 값이 이미 "12.3M tokens" 라고 말하므로 뺍니다.
@@ -211,6 +263,6 @@ private struct QuotaRow: View {
         }
         .help(quota.tooltip(loc))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(quota.provider.displayName): \(quota.valueText(loc))")
+        .accessibilityLabel("\(quota.provider.displayName(loc)): \(quota.valueText(loc))")
     }
 }

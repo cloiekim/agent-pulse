@@ -29,6 +29,21 @@
     /\/api\/organizations\/[^/]+\/chat_conversations\/[^/]+\/retry_completion/,
     /\/backend-api\/conversation$/,                                       // chatgpt.com
     /\/backend-api\/f\/conversation$/,
+
+    // Claude Design (아티팩트 편집기).
+    //
+    // ⚠️ 이름이 전혀 다릅니다 — `OmeletteService/Chat` 은 내부 코드명이라
+    //    `conversation` 이나 `completion` 같은 단어가 안 들어갑니다.
+    //    그래서 주소만 보고는 절대 못 알아냅니다.
+    //
+    //    `(무시됨)` 로그를 남겨둔 덕에 찾았습니다. 사이트가 새 표면을 만들 때마다
+    //    이런 일이 또 있을 테니, 그 로그는 계속 남겨둡니다.
+    // ⚠️ 점과 슬래시를 헷갈리지 마세요.
+    //    실제 경로는 `/design/anthropic.omelette.api.v1alpha.OmeletteService/Chat` 로,
+    //    `v1alpha.OmeletteService` 가 **한 덩어리**입니다 (gRPC-web 방식).
+    //    처음엔 그 사이를 슬래시로 기대해서 한 번도 안 걸렸습니다.
+    //    버전이 올라가도 되게 느슨하게 잡습니다.
+    /\/design\/[^/]*OmeletteService\/Chat/i,
   ];
 
   const isCompletion = (url) => {
@@ -54,9 +69,46 @@
     return t || 'Untitled';
   };
 
+  /// claude.ai 안에서도 표면이 여러 개입니다.
+  ///
+  /// ⚠️ 예전엔 전부 `Claude · tab` 으로만 보냈습니다. 그래서 Design 에서 만든 게
+  ///    일반 채팅과 구분이 안 되고, 제목만 봐서는 어디서 온 건지 알 수 없었습니다.
+  ///    (`document.title` 이 아티팩트 이름이라 더 헷갈립니다.)
+  const productName = () => {
+    if (SITE !== 'claude.ai') return null;
+    const p = location.pathname;
+    if (p.startsWith('/design')) return 'Claude Design';
+    if (p.startsWith('/cowork')) return 'Claude Cowork';
+    return null;   // 일반 채팅은 기본 이름을 씁니다
+  };
+
   let sequence = 0;
 
+  // ── 무응답 감시견 ────────────────────────────────────────────
+  //
+  // ⚠️ `generating` 을 쏜 뒤 완료 신호를 못 받으면 **영원히 실행 중**으로 남습니다.
+  //    실제로 아무것도 안 하는 새 탭이 1분 넘게 `Running` 으로 떠 있었습니다.
+  //
+  //    스트림이 비정상 종료되거나, 사용자가 중간에 멈추거나, 탭을 옮기면
+  //    끝을 알리는 신호가 안 옵니다. 그럴 때를 대비해 스스로 정리합니다.
+  //
+  //    "안 끝났는데 끝났다고 하는 것" 보다 "끝났는데 계속 돈다고 하는 것" 이
+  //    더 나쁩니다. 후자는 목록을 쓰레기로 채우고 신뢰를 깎습니다.
+  const STALL_MS = 90 * 1000;
+  let stallTimer = null;
+
+  const clearStall = () => {
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+  };
+
   const emit = (state, detail) => {
+    clearStall();
+    if (state === 'generating') {
+      stallTimer = setTimeout(() => {
+        console.log('[Agent Pulse] 응답이 끊긴 것으로 보고 정리합니다');
+        emit('complete');
+      }, STALL_MS);
+    }
     console.log('[Agent Pulse] →', state, detail || '');
     window.postMessage({
       source: 'agent-pulse',
@@ -65,6 +117,7 @@
         conversationId: conversationId(),
         state,                       // generating | complete | error
         title: conversationTitle(),
+        product: productName() || undefined,
         detail: detail || undefined,
         url: location.href,
         seq: ++sequence,
@@ -111,6 +164,8 @@
     try {
       url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
     } catch { /* ignore */ }
+
+    rememberOrg(url);
 
     if (!isCompletion(url)) {
       // 패턴이 안 맞았지만 "대화 요청처럼 생긴" 주소는 찍어둡니다.
@@ -257,6 +312,54 @@
       const path = url ? String(url) : '';
       const worthChecking = path && (USAGE_URL.test(path) || path.indexOf('/api/') !== -1);
 
+      // ── 진짜 사용량 ──────────────────────────────────────
+      //
+      // ⚠️ 여기가 유일한 출처입니다.
+      //    `/api/organizations/<org>/usage` 가 퍼센트와 리셋 시각을
+      //    그대로 내려줍니다:
+      //      five_hour.utilization / resets_at
+      //      seven_day.utilization / resets_at
+      //
+      //    로컬 파일(`~/.claude.json`, `stats-cache.json`)을 세 번 뒤졌지만
+      //    한도는 어디에도 없었습니다. CLI 는 API 응답에서 받아 쓰고 버립니다.
+      //    브라우저만이 이 값을 볼 수 있습니다.
+      if (path.indexOf('/usage') !== -1) {
+        result.then(function (res) {
+          if (!res.ok) return;
+          res.clone().json().then(function (u) {
+            const quotas = [];
+            const add = (key, label) => {
+              const v = u && u[key];
+              if (!v || typeof v.utilization !== 'number') return;
+              quotas.push({
+                label: label,
+                // 앱은 0~1 로 받습니다. API 는 0~100 으로 줍니다.
+                percent: v.utilization / 100,
+                resetsAt: v.resets_at || null
+              });
+            };
+            add('five_hour', 'session');
+            add('seven_day', 'weekly');
+            // ⚠️ 크레딧도 한도입니다.
+            //    구독 한도를 넘으면 여기서 차감되고, 이것마저 떨어지면
+            //    `You're out of usage credits` 로 **완전히 막힙니다.**
+            //    5시간·주간이 여유 있어도 이게 0 이면 아무것도 못 합니다.
+            add('extra_usage', 'credits');
+            if (!quotas.length) return;
+
+            window.postMessage({
+              source: 'agent-pulse-usage',
+              payload: { provider: 'claudeWeb', quotas: quotas }
+            }, location.origin);
+
+            console.log('%c[Agent Pulse · 사용량]%c ' +
+              quotas.map(q => q.label + ' ' + Math.round(q.percent * 100) + '%').join(' · '),
+              'background:#2F6FED;color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',
+              'color:inherit');
+          }).catch(function () {});
+        }).catch(function () {});
+      }
+
       if (worthChecking) {
         result.then(function (res) {
           if (!res.ok) return;
@@ -295,6 +398,64 @@
       'color:inherit'
     );
   }
+
+  // ── 사용량 주기 갱신 ────────────────────────────────────────
+  //
+  // ⚠️ 지켜보기만 해서는 부족합니다.
+  //    `/usage` 는 페이지가 처음 뜰 때 한 번만 호출됩니다. 그래서 탭을 새로
+  //    로드하기 전까지 값이 갱신되지 않고, 앱을 다시 띄우면 아예 사라집니다.
+  //    (실제로 "사용량이 없어졌다" 가 나왔습니다.)
+  //
+  //    그래서 우리가 직접 부릅니다. 5분마다 한 번이면 충분하고,
+  //    이미 로그인된 세션이라 추가 권한도 필요 없습니다.
+  const ORG_RE = /\/api\/organizations\/([0-9a-f-]{36})\//i;
+  let orgId = null;
+
+  const pollUsage = async () => {
+    if (!orgId || document.hidden) return;
+    try {
+      const res = await originalFetch(`/api/organizations/${orgId}/usage`, {
+        credentials: 'include'
+      });
+      if (!res.ok) return;
+      const u = await res.json();
+      const quotas = [];
+      const add = (key, label) => {
+        const v = u && u[key];
+        if (!v || typeof v.utilization !== 'number') return;
+        quotas.push({ label, percent: v.utilization / 100, resetsAt: v.resets_at || null });
+      };
+      add('five_hour', 'session');
+      add('seven_day', 'weekly');
+      add('extra_usage', 'credits');
+      if (quotas.length) {
+        window.postMessage({
+          source: 'agent-pulse-usage',
+          payload: { provider: 'claudeWeb', quotas }
+        }, location.origin);
+      }
+    } catch { /* 로그아웃 등 — 조용히 넘어갑니다 */ }
+  };
+
+  // 조직 ID 는 오가는 요청에서 주워둡니다.
+  const rememberOrg = (url) => {
+    if (orgId || !url) return;
+    const m = ORG_RE.exec(String(url));
+    if (m) {
+      orgId = m[1];
+      // 백그라운드가 탭 없이도 쓸 수 있게 저장해둡니다.
+      window.postMessage({ source: 'agent-pulse-org', orgId }, location.origin);
+      setTimeout(pollUsage, 2000);
+    }
+  };
+
+  setInterval(pollUsage, 5 * 60 * 1000);
+
+  // 탭을 닫거나 다른 곳으로 가면 실행 중이던 걸 정리합니다.
+  // 안 그러면 닫힌 탭이 목록에 계속 남습니다.
+  window.addEventListener('pagehide', () => {
+    if (stallTimer) emit('complete');
+  });
 
   console.log('%c[Agent Pulse]%c 감시 시작 — ' + SITE,
               'background:#D97757;color:#fff;padding:2px 6px;border-radius:4px;font-weight:600',

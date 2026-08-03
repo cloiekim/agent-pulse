@@ -3,16 +3,23 @@
   "name": "Agent Pulse",
   "version": "0.1.0",
   "description": "Watches your ChatGPT and Claude tabs and reports their state to the Agent Pulse menu bar app. Runs entirely on your machine.",
-
-  "permissions": ["storage"],
-
-  "host_permissions": ["http://127.0.0.1/*"],
-
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://claude.ai/*"
+  ],
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
   },
-
   "content_scripts": [
     {
       "matches": [
@@ -20,7 +27,9 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
-      "js": ["src/inject.js"],
+      "js": [
+        "src/inject.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start",
       "all_frames": false
@@ -31,15 +40,21 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
-      "js": ["src/bridge.js"],
+      "js": [
+        "src/bridge.js"
+      ],
       "world": "ISOLATED",
       "run_at": "document_start",
       "all_frames": false
     }
   ],
-
   "action": {
     "default_popup": "src/popup.html",
-    "default_title": "Agent Pulse"
+    "default_title": "Agent Pulse",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   }
 }

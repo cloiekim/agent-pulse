@@ -50,7 +50,12 @@ enum ClaudeCodeUsage {
         let breakdown = Self.summarize(inBlock)
 
         apLog("Claude Code: 항목 \(turns.count)개 중 이번 블록 \(inBlock.count)개, \(total) 토큰")
-        guard total > 0 else { return nil }
+
+        // ⚠️ 이번 구간에 아무것도 안 썼어도 **줄은 남깁니다.**
+        //    예전엔 0 이면 통째로 숨겼는데, 그러면 화면에서 Claude 가
+        //    사라져서 "왜 안 보이지?" 가 됩니다.
+        //    `used 0 tokens` 는 "안 썼다" 는 **정보**입니다 — 없는 것과 다릅니다.
+        //    (로그를 아예 못 찾은 경우는 위에서 이미 nil 로 빠집니다.)
 
         return UsageQuota(
             provider: .claudeCode,

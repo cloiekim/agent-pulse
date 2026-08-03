@@ -69,6 +69,13 @@ struct MenuPanel: View {
                 OnboardingView(onSkip: { isOnboarded = true })
             } else {
                 EmptyStateView()
+
+                // ⚠️ 아무것도 안 돌고 있어도 **사용량은 봅니다.**
+                //    오히려 그때가 "지금 시작해도 되나?" 를 확인하는 순간입니다.
+                //    한도가 다 찼는데 그걸 모르고 시작하면 바로 막힙니다.
+                if !usage.isEmpty {
+                    UsageFooter(groups: usage.groups)
+                }
             }
         }
         // 팝오버가 열려 있는 동안은 메뉴바 캡슐을 단색으로 바꿉니다.

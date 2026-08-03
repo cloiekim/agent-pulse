@@ -21,6 +21,9 @@ struct AgentEvent: Codable, Identifiable {
     var toolName: String? = nil
     /// 어느 훅에서 왔는지. 진단용 — 오탐 추적에 꼭 필요합니다.
     var hookName: String? = nil
+    /// 같은 사이트 안의 세부 표면 이름 (`Claude Design` 등).
+    /// 없으면 에이전트 기본 이름을 씁니다.
+    var product: String? = nil
 
     /// 이 이벤트가 의미하는 상태.
     let state: SessionState
@@ -53,7 +56,7 @@ struct AgentEvent: Codable, Identifiable {
 extension AgentEvent {
     // AgentSession 과 같은 이유 — 필드가 늘어도 예전 기록을 계속 읽을 수 있어야 합니다.
     enum CodingKeys: String, CodingKey {
-        case id, agent, sessionKey, toolName, hookName, state, title, cwd, detail, origin, returnTarget, timestamp, raw
+        case id, agent, sessionKey, toolName, hookName, product, state, title, cwd, detail, origin, returnTarget, timestamp, raw
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +66,7 @@ extension AgentEvent {
         sessionKey = try c.decode(String.self, forKey: .sessionKey)
         toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
         hookName = try c.decodeIfPresent(String.self, forKey: .hookName)
+        product = try c.decodeIfPresent(String.self, forKey: .product)
         state = try c.decode(SessionState.self, forKey: .state)
         title = try c.decodeIfPresent(String.self, forKey: .title)
         cwd = try c.decodeIfPresent(String.self, forKey: .cwd)

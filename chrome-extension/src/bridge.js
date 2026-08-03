@@ -18,6 +18,18 @@
     if (!data) return;
 
     // 사용량 탐색 결과 — 팝업에서 보여주기 위한 것.
+    if (data.source === 'agent-pulse-org' && data.orgId) {
+      try { chrome.runtime.sendMessage({ type: 'org', orgId: data.orgId }); } catch { /* 무시 */ }
+      return;
+    }
+
+    if (data.source === 'agent-pulse-usage' && data.payload) {
+      try {
+        chrome.runtime.sendMessage({ type: 'usage', payload: data.payload });
+      } catch { /* 확장이 갱신 중이면 무시 */ }
+      return;
+    }
+
     if (data.source === 'agent-pulse-discovery' && data.finding) {
       try {
         chrome.runtime.sendMessage({ type: 'usage-discovery', finding: data.finding });

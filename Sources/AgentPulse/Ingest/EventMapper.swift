@@ -97,11 +97,27 @@ enum EventMapper {
         //    세션 ID 만 믿으면 엉뚱한 대화의 제목이 붙습니다.
         //    작업 폴더가 다르면 같은 세션일 수 없으므로 그냥 폴더명으로 떨어집니다.
         let desktop = ClaudeDesktopSessions.lookup(cliSessionId: sessionID)
-        let sameProject = desktop.map { entry in
-            guard let a = entry.cwd, let b = cwd else { return false }
+        // 진단: 제목이 폴더명이나 첫 프롬프트로 떨어질 때 왜인지 알아야 합니다.
+        if desktop == nil, hookName == "UserPromptSubmit" {
+            apLog("데스크톱 세션 못 찾음: id=\(sessionID.prefix(8))… (색인 \(ClaudeDesktopSessions.indexCount)개)")
+        }
+
+        // ⚠️ 폴더 검증은 **어긋날 때만** 거부합니다.
+        //
+        //    처음엔 "폴더가 같아야 제목을 쓴다" 로 만들었는데 너무 빡빡했습니다.
+        //    한쪽에 cwd 가 없기만 해도 거부해서, **맞는 제목을 버리고** 트랜스크립트
+        //    첫 프롬프트로 떨어졌습니다.
+        //    (데스크톱 앱엔 `Set up Firebase Firestore integration` 인데
+        //     우리는 `내 firebase - google analytics…` 를 보여줬습니다.)
+        //
+        //    세션 ID 는 이미 충분히 강한 키입니다. 폴더는 **명백히 다를 때만**
+        //    반증으로 씁니다 — 있는 정보끼리 부딪힐 때만요.
+        let sameProject: Bool = {
+            guard let entry = desktop else { return false }
+            guard let a = entry.cwd, let b = cwd else { return true }   // 모르면 믿습니다
             return URL(fileURLWithPath: a).standardizedFileURL
                 == URL(fileURLWithPath: b).standardizedFileURL
-        } ?? false
+        }()
 
         // 제목 우선순위:
         //   1. 데스크톱 앱 세션 제목 (있고, 같은 프로젝트일 때)
@@ -275,6 +291,7 @@ enum EventMapper {
         return AgentEvent(
             agent: agent,
             sessionKey: conversationID,
+            product: json["product"] as? String,
             state: state,
             title: json["title"] as? String,
             detail: json["detail"] as? String,

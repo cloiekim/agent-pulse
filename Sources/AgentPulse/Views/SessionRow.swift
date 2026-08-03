@@ -55,8 +55,22 @@ struct SessionRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 어떤 상태든 누르면 그 세션이 있는 곳으로 갑니다.
-            StatusPill(state: session.state, action: onPrimaryAction ?? onOpen)
+            // ⚠️ 한도 초과엔 `Jump` 가 의미 없습니다.
+            //    가서 할 수 있는 게 없거든요 — 기다리는 것뿐입니다.
+            //    대신 **얼마나 기다려야 하는지**를 그 자리에 보여줍니다.
+            //    그게 이 상황에서 유일하게 쓸모 있는 정보입니다.
+            if session.isRateLimited {
+                Text(resetCountdown ?? loc("Limited", "한도 초과"))
+                    .font(Theme.supporting(.medium))
+                    .foregroundStyle(theme.attentionFg)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 3)
+                    .background(theme.attentionBg, in: Capsule())
+                    .fixedSize()
+            } else {
+                // 어떤 상태든 누르면 그 세션이 있는 곳으로 갑니다.
+                StatusPill(state: session.state, action: onPrimaryAction ?? onOpen)
+            }
         }
         .padding(.horizontal, Theme.rowPaddingH)
         .padding(.vertical, Theme.rowPaddingV)
@@ -77,7 +91,8 @@ struct SessionRow: View {
                 }
             }
         }
-        .onTapGesture { onOpen?() }
+        // 한도 초과는 갈 곳이 없으므로 행 클릭도 막습니다.
+        .onTapGesture { if !session.isRateLimited { onOpen?() } }
         .onHover { hovering = $0 }
         // ⚠️ 내부 URL(agentpulse://terminal?cwd=…)을 그대로 보여주면 안 됩니다.
         //    사용자에게 아무 의미 없고, 만들다 만 것처럼 보입니다.
@@ -105,7 +120,9 @@ struct SessionRow: View {
     ///    `/tmp` 에서 띄우면 제목도 `tmp`, 부제목도 `tmp` 가 되어
     ///    **같은 글자를 두 번 보여주고 정작 필요한 정보가 잘렸습니다.**
     private var subtitle: String {
-        var parts = [session.agent.displayName]
+        // 같은 사이트라도 표면이 다르면 그걸 씁니다 (`Claude Design` 등).
+        // 그래야 제목만 보고 "이게 어디서 온 거지?" 를 안 묻게 됩니다.
+        var parts = [session.product ?? session.agent.displayName]
 
         let place: String? = {
             if session.agent.surface != .terminal { return loc("tab", "탭") }
@@ -121,6 +138,12 @@ struct SessionRow: View {
         //    예전엔 `Claude Code · deepsynth — er…` 처럼 이유가 잘려서
         //    아무 정보가 없었습니다. 프로젝트명은 제목에서 이미 읽히니 뺍니다.
         if session.state == .failed {
+            // ⚠️ 한도 초과는 **언제 풀리는지**가 유일하게 쓸모 있는 정보입니다.
+            //    `rate_limit` 이라는 코드를 그대로 보여주면 아무 도움이 안 됩니다.
+            if session.isRateLimited {
+                // 남은 시간은 오른쪽 알약이 말하므로 여기선 이유만.
+                return loc("Usage limit reached", "사용 한도 도달")
+            }
             if session.isServerError {
                 return loc("Claude server error · tap for status",
                            "Claude 서버 오류 · 눌러서 상태 확인")
@@ -134,6 +157,18 @@ struct SessionRow: View {
         // `Claude Code —` 처럼 끝나면 뒤가 잘린 것처럼 보입니다.
         let left = parts.joined(separator: " · ")
         return timing.isEmpty ? left : left + " — " + timing
+    }
+
+    /// 한도가 풀리기까지 남은 시간. `2시간 15분` 처럼.
+    ///
+    /// ⚠️ 절대 시각(`오후 8:30`)보다 남은 시간이 낫습니다.
+    ///    "지금부터 얼마나 못 쓰나" 가 알고 싶은 것이지,
+    ///    몇 시인지를 계산해서 빼는 건 사용자가 할 일이 아닙니다.
+    private var resetCountdown: String? {
+        guard let resets = UsageSnapshot.nextReset else { return nil }
+        let remaining = resets.timeIntervalSinceNow
+        guard remaining > 0 else { return nil }
+        return remaining.shortDuration(loc)
     }
 
     /// 같은 제목이 여러 개일 때 구분용으로 붙이는 시작 시각.
@@ -152,6 +187,9 @@ struct SessionRow: View {
     private var jumpHint: String {
         // 서버 오류는 코드를 고칠 게 아니라 기다리는 상황입니다.
         // 그러니 터미널보다 상태 페이지가 맞습니다.
+        if session.isRateLimited {
+            return loc("See usage below", "아래 사용량 참고")
+        }
         if session.isServerError {
             return loc("Open status.claude.com", "status.claude.com 열기")
         }

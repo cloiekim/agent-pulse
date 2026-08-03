@@ -23,6 +23,13 @@ enum ConnectionStatus {
     }
 
     static func all(_ loc: Loc) -> [Surface] {
+        // ⚠️ 연결된 것을 위로 올립니다.
+        //    안 된 것이 중간에 끼면 목록이 "고장난 것들" 처럼 읽힙니다.
+        //    잘 되고 있는 걸 먼저 보여주고, 손볼 게 있으면 아래에 모읍니다.
+        surfaces(loc).sorted { $0.connected && !$1.connected }
+    }
+
+    private static func surfaces(_ loc: Loc) -> [Surface] {
         [
             Surface(id: "claudeCode",
                     name: "Claude Code",

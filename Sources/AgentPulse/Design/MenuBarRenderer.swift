@@ -65,8 +65,14 @@ enum MenuBarRenderer {
             let glyphRect = NSRect(x: 0,
                                    y: (size.height - glyphBare) / 2,
                                    width: glyphBare, height: glyphBare)
-            // 조용할 때는 55% 로 눌러 둡니다 — 있지만 나서지 않게.
-            drawGlyph(in: glyphRect, color: NSColor.labelColor.withAlphaComponent(0.55))
+            // ⚠️ 템플릿 이미지에서 알파는 **곧 마스크**입니다.
+            //    55% 로 그리면 시스템이 그 투명도 그대로 벽지 위에 얹어서,
+            //    아이콘이 빽빽한 메뉴바나 밝은 벽지에서는 사실상 안 보입니다.
+            //    (실제로 "파형 아이콘이 안 보인다" 가 반복해서 나왔습니다.)
+            //
+            //    디자인의 55% 는 여유 있는 메뉴바 기준이었습니다.
+            //    보이지 않는 아이콘은 조용한 게 아니라 없는 것이므로 85% 로 올립니다.
+            drawGlyph(in: glyphRect, color: NSColor.labelColor.withAlphaComponent(0.85))
 
             if let dot {
                 let d: CGFloat = 6

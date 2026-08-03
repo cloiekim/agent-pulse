@@ -16,6 +16,8 @@ final class UsageStore {
     private(set) var groups: [UsageGroup] = []
 
     /// 이 시간이 지난 데이터는 신뢰하지 않고 버립니다.
+    /// 로컬에서 읽는 값(Claude Code·Codex)이 이만큼 안 오면 버립니다.
+    /// 이것들은 1분마다 다시 읽으므로, 30분간 없으면 진짜로 없는 겁니다.
     private let staleAfter: TimeInterval = 30 * 60
 
     private var quotas: [String: UsageQuota] = [:]   // id -> quota
@@ -25,6 +27,7 @@ final class UsageStore {
     var isEmpty: Bool { groups.isEmpty }
 
     func start() {
+        restoreExternal()
         refreshLocal()
         lastFullRefresh = Date()
         // 로그를 읽는 비용이 있으므로 평소엔 1분이면 충분합니다.
@@ -65,7 +68,41 @@ final class UsageStore {
     /// 크롬 확장이 보내온 값.
     func ingest(_ quota: UsageQuota) {
         quotas[quota.id] = quota
+        saveExternal()
         rebuild()
+    }
+
+    // MARK: - 확장이 준 값 기억하기
+    //
+    // ⚠️ 확장이 보내준 사용량은 메모리에만 있었습니다.
+    //    앱을 다시 띄우면 사라지고, claude.ai 탭이 새로 로드될 때까지
+    //    빈 자리로 남습니다. 실제로 "사용량 디자인이 없어졌다" 가 나왔습니다.
+    //
+    //    로컬 로그에서 읽는 값(Claude Code·Codex)은 매분 다시 읽으니 괜찮지만,
+    //    브라우저에서 오는 값은 **우리가 부를 수 없습니다.** 기억해둬야 합니다.
+    //
+    //    다만 오래된 값은 거짓이 될 수 있으므로, 하루 지난 건 버립니다.
+
+    private static let externalKey = "externalQuotas"
+    private let externalTTL: TimeInterval = 24 * 60 * 60
+
+    private func saveExternal() {
+        // 로컬에서 읽는 것들은 저장할 필요가 없습니다.
+        let external = quotas.values.filter { $0.provider == .claudeWeb || $0.provider == .openai }
+        guard let data = try? JSONEncoder().encode(Array(external)) else { return }
+        UserDefaults.standard.set(data, forKey: Self.externalKey)
+    }
+
+    private func restoreExternal() {
+        guard let data = UserDefaults.standard.data(forKey: Self.externalKey),
+              let saved = try? JSONDecoder().decode([UsageQuota].self, from: data)
+        else { return }
+
+        let now = Date()
+        for quota in saved where now.timeIntervalSince(quota.readAt) < externalTTL {
+            quotas[quota.id] = quota
+        }
+        if !saved.isEmpty { apLog("저장된 사용량 복원: \(quotas.count)개") }
     }
 
     /// Claude Code 로컬 로그에서 직접 읽기.
@@ -99,14 +136,55 @@ final class UsageStore {
     // MARK: - 정리
 
     private func rebuild() {
-        let cutoff = Date().addingTimeInterval(-staleAfter)
-        quotas = quotas.filter { $0.value.readAt > cutoff }
+        // ⚠️ 브라우저에서 온 값은 **다르게 다룹니다.**
+        //
+        //    로컬 값은 우리가 매분 다시 읽으니 오래되면 진짜 없는 겁니다.
+        //    하지만 브라우저 값은 **우리가 부를 수 없습니다** — claude.ai 탭이
+        //    떠 있어야 옵니다. 탭을 닫아뒀다고 한도가 사라진 게 아닌데
+        //    30분 만에 지워버리면 화면에서 통째로 없어집니다.
+        //    (실제로 "주간이 갑자기 안 나온다" 가 나왔습니다.)
+        //
+        //    저장은 24시간인데 정리는 30분이라 서로 모순이었습니다.
+        //    브라우저 값은 오래돼도 남기고, 흐리게 표시해서 알립니다 (isStale).
+        let localCutoff = Date().addingTimeInterval(-staleAfter)
+        let externalCutoff = Date().addingTimeInterval(-externalTTL)
 
-        groups = UsageQuota.Provider.allCases.compactMap { provider in
-            let items = quotas.values
-                .filter { $0.provider == provider }
-                .sorted { $0.label < $1.label }
-            return items.isEmpty ? nil : UsageGroup(provider: provider, quotas: items)
+        quotas = quotas.filter { _, quota in
+            let fromBrowser = quota.provider == .claudeWeb || quota.provider == .openai
+            return quota.readAt > (fromBrowser ? externalCutoff : localCutoff)
         }
+
+        // 회사 단위로 묶습니다. 같은 계정 얘기를 두 섹션으로 나누지 않습니다.
+        let order: [UsageQuota.Provider] = [.claudeWeb, .claudeCode, .codex, .openai]
+        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+
+        // 퍼센트(계정 한도)가 먼저, 그다음 개수(도구별 사용량).
+        // 5시간이 주간보다 위 — 짧은 주기가 먼저입니다.
+        func sortKey(_ q: UsageQuota) -> (Int, Int, Int) {
+            let isMeter = q.barFraction == nil ? 1 : 0
+            let period = switch q.label {
+            case "session": 0
+            case "weekly":  1
+            case "credits": 2   // 크레딧은 마지막 방어선이라 맨 아래
+            default:        3
+            }
+            return (isMeter, period, rank[q.provider] ?? 99)
+        }
+
+        let byVendor = Dictionary(grouping: quotas.values) { $0.provider.vendor }
+
+        groups = byVendor
+            .map { vendor, items -> UsageGroup in
+                let sorted = items.sorted { sortKey($0) < sortKey($1) }
+                // 헤더 로고는 그 회사에서 가장 앞선 프로바이더 것을 씁니다.
+                let head = sorted.min { (rank[$0.provider] ?? 99) < (rank[$1.provider] ?? 99) }
+                return UsageGroup(vendor: vendor,
+                                  provider: head?.provider ?? sorted[0].provider,
+                                  quotas: sorted)
+            }
+            .sorted { (rank[$0.provider] ?? 99) < (rank[$1.provider] ?? 99) }
+
+        // 한도에 걸린 세션이 "언제 풀리나" 를 물어볼 수 있게 해둡니다.
+        UsageSnapshot.update(from: Array(quotas.values))
     }
 }

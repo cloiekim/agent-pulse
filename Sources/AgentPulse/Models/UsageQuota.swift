@@ -57,6 +57,13 @@ struct UsageQuota: Identifiable, Codable, Equatable {
     /// 이 값을 언제 읽었는가. 오래되면 흐리게 표시합니다.
     var readAt: Date = Date()
 
+    /// 읽은 지 오래됐는가.
+    ///
+    /// 브라우저에서 오는 값은 우리가 부를 수 없어서, 탭이 닫혀 있으면
+    /// 갱신이 멈춥니다. 그때 옛날 숫자를 **똑같이 선명하게** 보여주면
+    /// 지금 값인 줄 압니다. 흐리게 해서 "이건 좀 됐다" 를 알립니다.
+    var isStale: Bool { Date().timeIntervalSince(readAt) > 20 * 60 }
+
     enum Measure: Codable, Equatable {
         /// 제공자가 준 진짜 퍼센트. 막대를 그립니다.
         case percent(Double)              // 0.0 ~ 1.0
@@ -74,8 +81,41 @@ struct UsageQuota: Identifiable, Codable, Equatable {
             switch self {
             case .claudeCode: "Claude Code"
             case .codex:      "Codex"
-            case .claudeWeb:  "Claude"
+            // ⚠️ 이 한도는 claude.ai 웹 전용이 아닙니다.
+            //    `/api/organizations/<org>/usage` 는 **계정 전체** 한도를 줍니다 —
+            //    Claude Code 로 쓴 것도 여기 포함됩니다.
+            //    그냥 "Claude" 라고 쓰면 바로 위의 "Claude Code" 와 별개인 것처럼
+            //    읽혀서, 두 섹션이 왜 따로 있는지 헷갈립니다. (실제로 그 질문이 나왔습니다.)
+            case .claudeWeb:  "Claude account"
             case .openai:     "ChatGPT"
+            }
+        }
+
+        /// 회사 이름. 섹션 헤더에 씁니다.
+        var vendorName: String {
+            switch self {
+            case .claudeCode, .claudeWeb: "Claude"
+            case .codex, .openai:         "OpenAI"
+            }
+        }
+
+        /// 어느 회사 것인가. 화면에서 구분선을 넣는 기준입니다.
+        var vendor: String {
+            switch self {
+            case .claudeCode, .claudeWeb: "anthropic"
+            case .codex, .openai:         "openai"
+            }
+        }
+
+        /// 번역이 필요한 이름.
+        ///
+        /// ⚠️ `displayName` 에 한국어를 그대로 박아뒀다가, 영어 설정에서도
+        ///    `Claude 계정` 이 나왔습니다. 브랜드명(Claude Code, Codex)은
+        ///    번역하지 않지만 **우리가 붙인 말은 번역해야 합니다.**
+        func displayName(_ loc: Loc) -> String {
+            switch self {
+            case .claudeWeb: loc("Claude account", "Claude 계정")
+            default:         displayName
             }
         }
 
@@ -108,7 +148,17 @@ struct UsageQuota: Identifiable, Codable, Equatable {
     /// 교훈: 사용자가 이 줄에서 알고 싶은 건 **얼마나 썼고 언제 초기화되나** 입니다.
     /// 구간이 언제 시작했는지는 부차적이라 툴팁으로 내렸습니다.
     func displayLabel(_ loc: Loc) -> String {
-        loc("Used", "사용량")
+        // 브라우저에서 온 진짜 한도는 기간이 이름에 들어 있습니다.
+        // ⚠️ 기간을 그대로 씁니다.
+        //    `Session` 은 "무슨 세션?" 이라는 질문을 낳습니다 —
+        //    `5h block` 이 무슨 뜻이냐고 물었던 것과 같은 문제입니다.
+        //    두 항목이 나란히 있을 때 `5시간` / `주간` 이면 관계가 바로 읽힙니다.
+        switch label {
+        case "session": return loc("5-hour", "5시간")
+        case "weekly":  return loc("Weekly", "주간")
+        case "credits": return loc("Credits", "크레딧")
+        default:        return loc("Used", "사용량")
+        }
     }
 
     /// 마우스를 올렸을 때 나오는 자세한 설명.
@@ -151,7 +201,8 @@ struct UsageQuota: Identifiable, Codable, Equatable {
 
         switch measure {
         case .percent(let f):
-            parts.append("\(Int((f * 100).rounded()))%")
+            // 퍼센트는 막대 옆에 붙으므로 숫자만. 리셋 시각은 툴팁에 있습니다.
+            return "\(Int((f * 100).rounded()))%"
         case .count(let used, let unit):
             // ⚠️ **쓴 양인지 남은 양인지 말해줘야 합니다.**
             //    `600K tokens` 만 보면 알 수 없습니다. 실제로 그 질문이 나왔습니다.
@@ -201,8 +252,22 @@ struct UsageQuota: Identifiable, Codable, Equatable {
 }
 
 /// 프로바이더별로 묶은 usage.
+/// 하단 사용량 블록의 한 덩어리.
+///
+/// ⚠️ **회사 단위**로 묶습니다. 프로바이더 단위가 아닙니다.
+///
+/// 예전엔 `Claude Code` 와 `Claude account` 가 따로 있었는데, 둘 다 같은
+/// 계정 얘기입니다 — 계정 한도에는 Claude Code 로 쓴 것도 포함되고요.
+/// 두 섹션으로 나눠 놓으니 관계가 안 보이고 자리만 두 배로 먹었습니다.
 struct UsageGroup: Identifiable, Equatable {
-    var id: String { provider.rawValue }
+    var id: String { vendor }
+    let vendor: String
+    /// 헤더에 쓸 이름과 로고.
     let provider: UsageQuota.Provider
     let quotas: [UsageQuota]
+
+    /// 퍼센트로 오는 것 — 계정 한도. 막대로 그립니다.
+    var meters: [UsageQuota] { quotas.filter { $0.barFraction != nil } }
+    /// 개수로 오는 것 — 도구별 토큰 사용량.
+    var counters: [UsageQuota] { quotas.filter { $0.barFraction == nil } }
 }

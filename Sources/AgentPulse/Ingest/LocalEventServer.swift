@@ -246,7 +246,9 @@ final class LocalEventServer {
 
         // 사용량은 세션 이벤트와 성격이 달라 따로 받습니다.
         if path == "/hook/usage" {
-            for quota in EventMapper.usageQuotas(from: json) { onUsage(quota) }
+            let parsed = EventMapper.usageQuotas(from: json)
+            apLog("확장에서 사용량 수신: \(parsed.count)개 — \(parsed.map(\.label).joined(separator: ", "))")
+            for quota in parsed { onUsage(quota) }
             return Self.reply(status: "200 OK", body: #"{"ok":true}"#)
         }
 

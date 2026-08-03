@@ -41,6 +41,9 @@ enum ClaudeDesktopSessions {
     private static let ttl: TimeInterval = 20
 
     /// 훅의 `session_id` 로 데스크톱 세션 정보를 찾습니다.
+    /// 색인에 몇 개가 들어 있는지. 진단용입니다.
+    nonisolated(unsafe) private(set) static var indexCount = 0
+
     static func lookup(cliSessionId: String) -> Entry? {
         refreshIfNeeded()
         lock.lock(); defer { lock.unlock() }
@@ -93,6 +96,7 @@ enum ClaudeDesktopSessions {
 
         lock.lock()
         cache = fresh
+        indexCount = fresh.count
         cachedAt = Date()
         lock.unlock()
     }
