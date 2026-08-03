@@ -50,13 +50,36 @@ ok "격리 속성 제거됨"
 say "3/5  AI 에이전트 연결"
 mkdir -p "$SUPPORT"
 
-# 앱을 한 번 띄워야 토큰이 생깁니다.
+# ⚠️ 앱이 떠야 토큰이 생기고, 토큰이 있어야 나머지가 전부 됩니다.
+#    여기서 실패했는데 계속 진행하면 에러가 줄줄이 나면서
+#    사용자는 뭐가 문제인지 알 수 없게 됩니다. (실제로 그랬습니다.)
+#    그래서 **여기서 멈춥니다.**
+TOKEN_FILE="$HOME/.agent-pulse/token"
+
 open "$DEST"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  [[ -f "$HOME/.agent-pulse/token" ]] && break
+for _ in $(seq 1 20); do
+  [[ -f "$TOKEN_FILE" ]] && break
   sleep 1
 done
-[[ -f "$HOME/.agent-pulse/token" ]] || warn "앱이 뜨지 않은 것 같습니다. 메뉴바에 파형 아이콘이 있는지 확인해주세요."
+
+if [[ ! -f "$TOKEN_FILE" ]]; then
+  echo
+  echo "❌ 앱이 실행되지 않았습니다."
+  echo
+  echo "   메뉴바 오른쪽에 파형 아이콘(⌁)이 보이나요?"
+  echo
+  echo "   안 보인다면 직접 한 번 열어보세요:"
+  echo "       open \"$DEST\""
+  echo
+  echo "   \"확인되지 않은 개발자\" 경고가 뜨면:"
+  echo "       시스템 설정 → 개인정보 보호 및 보안 → 아래쪽 \"확인 없이 열기\""
+  echo
+  echo "   앱이 뜬 뒤에 이 스크립트를 다시 실행해주세요:"
+  echo "       ./install.sh"
+  echo
+  exit 1
+fi
+ok "앱 실행됨"
 
 if command -v claude >/dev/null 2>&1 || [[ -d "$HOME/.claude" ]]; then
   ./install-claude-hooks.sh >/dev/null && ok "Claude Code 훅 설치됨"
@@ -93,7 +116,7 @@ cp -R chrome-extension "$SUPPORT/"
 ok "$SUPPORT/chrome-extension"
 
 say "5/5  페어링 토큰"
-TOKEN="$(tr -d "[:space:]" < "$HOME/.agent-pulse/token" 2>/dev/null || echo '(앱을 먼저 실행해주세요)')"
+TOKEN="$(tr -d "[:space:]" < "$TOKEN_FILE")"
 echo "  $TOKEN"
 printf '%s' "$TOKEN" | pbcopy 2>/dev/null && ok "클립보드에 복사했습니다"
 

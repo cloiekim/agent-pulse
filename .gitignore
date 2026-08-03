@@ -10,3 +10,7 @@ Resources/AgentPulse.icns
 # 로컬 설정·비밀
 *.agent-pulse-backup.*
 private-key*
+
+# 디자인 핸드오프 zip (원본은 별도 보관)
+*.zip
+design-v3/

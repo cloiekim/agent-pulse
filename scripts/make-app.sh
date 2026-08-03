@@ -24,7 +24,21 @@ BUNDLE_ID="com.agentpulse.menubar"
 VERSION="0.1.0"
 
 echo "▸ 빌드 중 ($CONFIG)..."
-swift build -c "$CONFIG"
+
+# ⚠️ 빌드 실패가 **조용히** 지나가면 안 됩니다.
+#
+#    `make-app.sh && cp && open` 로 이어 쓰는데, 첫 단계가 죽으면
+#    나머지가 건너뛰어지고 예전 앱이 그대로 남습니다.
+#    그러면 "왜 갑자기 안 되지?" 가 되고, 원인은 한참 위로 스크롤해야 보입니다.
+#    실제로 그것 때문에 앱이 죽은 줄 알고 크래시 로그를 뒤졌습니다.
+if ! swift build -c "$CONFIG"; then
+  echo
+  echo "════════════════════════════════════════"
+  echo "  ❌ 빌드 실패 — 위의 error: 줄을 보세요"
+  echo "     앱은 바뀌지 않았습니다 (예전 것 그대로)"
+  echo "════════════════════════════════════════"
+  exit 1
+fi
 
 BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
 BIN="$BIN_DIR/AgentPulse"
