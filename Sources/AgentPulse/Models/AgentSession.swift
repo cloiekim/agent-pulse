@@ -23,6 +23,20 @@ struct AgentSession: Identifiable, Codable {
     /// 같은 사이트 안의 세부 표면 (`Claude Design` 등).
     var product: String?
 
+    /// 화면에 쓸 표면 이름.
+    ///
+    /// ⚠️ 저장된 `product` 만 믿으면 안 됩니다. 세션은 **새 이벤트가 올 때만**
+    ///    갱신되므로, 확장이나 앱을 고쳐도 이미 목록에 있는 행은 그대로입니다.
+    ///    주소는 세션이 만들어질 때부터 갖고 있으니 그릴 때 다시 계산합니다.
+    var surfaceName: String? {
+        if let product { return product }
+        guard let raw = returnTarget,
+              let path = URL(string: raw)?.path else { return nil }
+        if path.hasPrefix("/design") { return "Claude Design" }
+        if path.hasPrefix("/cowork") { return "Claude Cowork" }
+        return nil
+    }
+
     var hasWorked = false
 
     /// 이 실패가 **우리 잘못이 아닌** 서버 쪽 문제인가.
@@ -44,6 +58,27 @@ struct AgentSession: Identifiable, Codable {
         let lowered = detail.lowercased()
         return ["rate_limit", "rate limit", "429", "usage limit", "out of credit"]
             .contains { lowered.contains($0) }
+    }
+
+    /// 실패 이유를 사람이 읽을 문장으로.
+    ///
+    /// ⚠️ **한 곳에서만 만듭니다.** 예전엔 목록은 "Claude 서버 오류" 로 번역해
+    ///    보여주는데 알림은 `session.detail` 을 그대로 실어서 `HTTP 502` 가
+    ///    떴습니다. 같은 실패가 두 군데서 다르게 읽혔고, 하필 사람을 방해하는
+    ///    쪽(알림)이 더 나쁜 문구였습니다.
+    ///
+    ///    원문 코드는 버리지 않고 툴팁에 남겨둡니다 — 디버깅에는 필요합니다.
+    func failureReason(_ loc: Loc) -> String? {
+        guard state == .failed else { return nil }
+        if isRateLimited {
+            return loc("Usage limit reached", "사용 한도 도달")
+        }
+        if isServerError {
+            return loc("Claude server error — it usually clears on its own",
+                       "Claude 서버 오류 — 대개 저절로 풀립니다")
+        }
+        if let detail, !detail.isEmpty { return detail }
+        return nil
     }
 
     var isServerError: Bool {

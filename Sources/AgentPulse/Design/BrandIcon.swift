@@ -15,6 +15,9 @@ struct AgentAvatar: View {
     private var theme: Theme { AppSettings.shared.theme(for: systemScheme) }
 
     let agent: AgentKind
+    /// 확장이 보내주는 제품 이름(`Claude Design` 등).
+    /// 같은 claude.ai 라도 마크를 다르게 그리기 위해 받습니다.
+    var product: String? = nil
     var size: CGFloat = Theme.avatarSize
 
     var body: some View {
@@ -23,15 +26,37 @@ struct AgentAvatar: View {
                 .fill(theme.avatarTile)
                 .frame(width: size, height: size)
                 .overlay {
-                    BrandMark(agent: agent)
+                    BrandMark(agent: agent, product: product)
                         .frame(width: size * 15 / 28, height: size * 15 / 28)
                 }
 
-            SurfaceBadge(surface: agent.surface)
-                .offset(x: 4, y: 4)
+            // ⚠️ 배지는 **헷갈릴 때만** 그립니다.
+            //
+            //    Claude Design 은 브라우저에만 있습니다. 팔레트가 이미 그걸
+            //    말하는데 위에 "브라우저" 배지까지 얹으면 아무 정보도 더하지
+            //    않으면서 아이콘만 지저분해집니다.
+            //
+            //    배지가 필요한 건 같은 로고가 두 표면에 다 있는 경우입니다 —
+            //    Claude Code(터미널)와 claude.ai(브라우저)처럼요.
+            //    항상 그리지 않으니, 배지가 보이면 "구분이 필요한 놈" 이라는
+            //    뜻이 되어 오히려 더 잘 읽힙니다.
+            if showsSurfaceBadge {
+                SurfaceBadge(surface: agent.surface)
+                    .offset(x: 4, y: 4)
+            }
         }
         .frame(width: size, height: size)
-        .accessibilityLabel("\(agent.displayName), \(agent.surface == .terminal ? "터미널" : "브라우저")")
+        .accessibilityLabel("\(product ?? agent.displayName), \(agent.surface == .terminal ? "터미널" : "브라우저")")
+    }
+
+    /// 표면 배지를 그릴지.
+    ///
+    /// 터미널 버전이 없는 표면(Design·Cowork)은 배지가 정보를 안 줍니다.
+    private var showsSurfaceBadge: Bool {
+        switch product {
+        case "Claude Design", "Claude Cowork": false
+        default: true
+        }
     }
 }
 
@@ -45,11 +70,35 @@ struct BrandMark: View {
         AppSettings.shared.appearance.resolved(system: systemScheme)
     }
     let agent: AgentKind
+    var product: String? = nil
 
     var body: some View {
-        BrandShape(pathData: pathData)
-            .fill(tint)
-            .aspectRatio(1, contentMode: .fit)
+        if let symbol = productSymbol {
+            // 같은 Claude 라도 Design 은 채팅이 아닙니다.
+            // 부제목에 "Claude Design" 이라고 쓰여 있긴 하지만, 행이 여러 개일 때
+            // 글자를 읽기 전에 눈으로 먼저 갈라져야 해서 마크를 바꿉니다.
+            Image(systemName: symbol)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .fontWeight(.medium)
+                .foregroundStyle(tint)
+        } else {
+            BrandShape(pathData: pathData)
+                .fill(tint)
+                .aspectRatio(1, contentMode: .fit)
+        }
+    }
+
+    /// 브랜드 벡터 대신 SF Symbol 을 쓰는 제품들.
+    ///
+    /// ⚠️ 이건 **Anthropic 공식 마크가 아닙니다.** 팔레트 모양의 시스템
+    /// 심볼입니다. 실제 Claude Design 벡터가 생기면 `BrandPaths` 에
+    /// path 를 넣고 여기 분기를 지우면 됩니다.
+    private var productSymbol: String? {
+        switch product {
+        case "Claude Design": "paintpalette.fill"
+        default:              nil
+        }
     }
 
     private var pathData: String {

@@ -16,7 +16,16 @@ final class SessionStore {
     private(set) var feed: [AgentEvent] = []
 
     /// 완료 후 이 시간이 지나면 목록에서 조용히 사라집니다.
-    private let completedTTL: TimeInterval = 30 * 60
+    /// 끝난 세션을 얼마나 들고 있을 것인가.
+    ///
+    /// ⚠️ 30분이었는데 24시간으로 늘렸습니다. 30분은 **자리를 비웠다 돌아온
+    ///    경우를 못 잡습니다** — 돌려놓고 점심 먹고 오면 이미 다 지워져 있어서
+    ///    "뭐가 끝났지?" 를 알 방법이 없었습니다.
+    ///
+    ///    다만 이건 이 앱을 "지금 뭐가 도나" 에서 "오늘 뭘 했나" 쪽으로
+    ///    한 발 밀어냅니다. 그래서 끝난 것들은 전부 `더 보기` 뒤로 접어두고,
+    ///    첫 화면은 여전히 지금 벌어지는 일만 보이게 둡니다.
+    private let completedTTL: TimeInterval = 24 * 60 * 60
 
     private var index: [String: Int] = [:]   // session.id -> sessions 배열 인덱스
     private let notifier: Notifier
@@ -143,11 +152,39 @@ final class SessionStore {
 
     /// 아무리 최근이어도 이 개수를 넘기지 않습니다.
     /// 목록이 길어지면 어차피 아무도 안 읽습니다.
-    private let maxSessions = 20
+    /// ⚠️ 보관을 24시간으로 늘렸으니 이제 상한이 실질적인 제한입니다.
+    ///    30개면 하루치로 넉넉하고, 넘으면 오래된 것부터 버립니다.
+    ///    (돌고 있는 것·승인 대기는 절대 안 버립니다.)
+    private let maxSessions = 30
+
+    /// 브라우저 세션이 "돌고 있다" 고 믿어줄 수 있는 최대 시간.
+    ///
+    /// ⚠️ 확장이 끝을 못 알리는 경우가 실제로 있습니다 — 탭을 닫거나, 크롬이
+    ///    메모리 절약으로 탭을 재우거나, 확장을 다시 읽어들이면 그렇습니다.
+    ///    확장 안에도 90초 감시견이 있지만 그건 **페이지가 살아 있어야** 돕니다.
+    ///
+    ///    그래서 앱에도 안전망을 둡니다. 5분은 넉넉한 값입니다 — 확장이 살아
+    ///    있으면 어떤 경우에도 90초 안에 끝을 알려주므로, 5분을 넘겼다는 건
+    ///    소식통이 끊겼다는 뜻입니다.
+    ///
+    ///    `completed` 로 바꾸지 않습니다. 끝났는지 **모르기** 때문입니다.
+    ///    모르는 걸 안다고 말하지 않는 게 이 앱의 규칙입니다.
+    private let browserRunningTTL: TimeInterval = 5 * 60
 
     /// 타이머로 주기 호출. 오래된 세션을 걷어냅니다.
     func prune() {
         let now = Date()
+
+        // ⚠️ 터미널 세션에는 적용하지 않습니다. Claude Code 는 한 턴이 10분을
+        //    넘기기도 하고, 훅으로 끝을 확실히 알려주므로 기다리면 됩니다.
+        for i in sessions.indices
+        where sessions[i].origin == .browser && sessions[i].state == .running {
+            if now.timeIntervalSince(sessions[i].lastEventAt) > browserRunningTTL {
+                apLog("브라우저 세션 소식 끊김 → idle 로 내림: \(sessions[i].title)")
+                sessions[i].state = .idle
+            }
+        }
+
         sessions.removeAll { session in
             // 아무것도 안 하고 조용해진 세션은 바로 버립니다.
             // 터미널만 열었다 닫은 껍데기라 보여줄 게 없습니다.

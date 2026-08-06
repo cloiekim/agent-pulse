@@ -56,13 +56,88 @@ final class MenuBarPresenter {
         }
     }
 
+    // MARK: - 파형 애니메이션
+    //
+    // ⚠️ **실행 중일 때만** 돕니다. 유휴·승인 대기·실패에서는 타이머가 아예
+    //    안 돕니다. 애니메이션이 필요한 건 "지금 뭔가 돌고 있다" 를 말할 때뿐이고,
+    //    나머지 상태에서 도는 건 배터리만 쓰는 일입니다.
+    //
+    //    비용: 0.1초마다 **이미 그려둔** NSImage 하나를 갈아 끼웁니다.
+    //    (MenuBarRenderer 가 위상별로 캐시합니다. 매번 새로 그리지 않습니다.)
+    private(set) var phase: Int = 0
+    private var animator: Task<Void, Never>?
+    private var screensAsleep = false
+
+    /// 지금 파형이 흘러야 하는가.
+    private var shouldAnimate: Bool {
+        shown.urgency == 1 && !screensAsleep
+    }
+
+    private func syncAnimation() {
+        if shouldAnimate {
+            guard animator == nil else { return }
+            animator = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard let self, !Task.isCancelled else { return }
+                    self.phase = (self.phase + 1) % MenuBarRenderer.frameCount
+                }
+            }
+        } else {
+            animator?.cancel()
+            animator = nil
+            // 멈출 때는 시작 위상으로 돌려놓습니다.
+            // 어중간한 데서 멈춰 있으면 정지 아이콘이 매번 달라 보입니다.
+            if phase != 0 { phase = 0 }
+        }
+    }
+
+    /// 화면이 잠들면 멈춥니다. 아무도 안 보는 그림을 그릴 이유가 없습니다.
+    func observeScreenSleep() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(forName: NSWorkspace.screensDidSleepNotification,
+                           object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.screensAsleep = true
+                self?.syncAnimation()
+            }
+        }
+        center.addObserver(forName: NSWorkspace.screensDidWakeNotification,
+                           object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.screensAsleep = false
+                self?.syncAnimation()
+            }
+        }
+    }
+
     private var pending: Task<Void, Never>?
 
+    /// 마지막으로 **요청받은** 값. `shown` 과 다릅니다.
+    ///
+    /// ⚠️ 이게 없으면 메뉴바가 옛 상태에 얼어붙습니다.
+    ///    `MenuBarExtra` 라벨은 SwiftUI 가 수시로 파괴하고 다시 만듭니다.
+    ///    다시 만들어질 때마다 `onAppear` 가 같은 값으로 `update()` 를 부르는데,
+    ///    예전 코드는 `shown` 하고만 비교해서 **매번 타이머를 다시 걸었습니다.**
+    ///    재생성 간격이 디바운스(1초)보다 짧으면 타이머가 영영 안 끝나고,
+    ///    실제로 `1 failed` 가 12분 넘게 남아 있었습니다 (실행 중인데도).
+    ///
+    ///    라벨이 다시 만들어지면 `onChange` 는 기준값을 잃어서 안 불립니다.
+    ///    즉 모든 갱신이 `onAppear` 로만 들어옵니다. 같은 요청을 무시하는 게
+    ///    선택이 아니라 필수입니다.
+    private var requested: Snapshot = .idle
 
     /// 새 상태를 반영합니다. 디바운스를 거칩니다.
     func update(to next: Snapshot) {
-        guard next != shown else { return }
+        // 같은 요청이 또 들어오면 진행 중인 타이머를 **건드리지 않습니다.**
+        guard next != requested else { return }
+        requested = next
+
         pending?.cancel()
+        pending = nil
+
+        // 이미 그 값이 보이고 있으면 기다릴 이유가 없습니다.
+        guard next != shown else { return }
 
         // 더 급해지면 빨리, 덜 급해지면 천천히.
         let delay: Duration = next.urgency > shown.urgency
@@ -73,6 +148,7 @@ final class MenuBarPresenter {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             self?.shown = next
+            self?.syncAnimation()
         }
     }
 
@@ -114,7 +190,7 @@ final class MenuBarPresenter {
         default:
             // 조용할 때는 맨 글리프. 아이콘만 모드가 아니어도 마찬가지입니다 —
             // 보고할 게 없으면 자리를 가장 적게 먹어야 합니다.
-            return .init(kind: .bare(dot: nil), isTemplate: true)
+            return .init(kind: .bare(dot: nil), isTemplate: true, phase: phase)
         }
 
         // ⚠️ 모드에 따라 **내용**을 먼저 정합니다.
@@ -128,8 +204,8 @@ final class MenuBarPresenter {
         case .icon:
             // 아이콘만 — 상태는 6px 점으로만. 열려 있으면 점도 뺍니다.
             return menuOpen
-                ? .init(kind: .bare(dot: nil), isTemplate: true)
-                : .init(kind: .bare(dot: fill ?? .runningDotColor), isTemplate: false)
+                ? .init(kind: .bare(dot: nil), isTemplate: true, phase: phase)
+                : .init(kind: .bare(dot: fill ?? .runningDotColor), isTemplate: false, phase: phase)
 
         case .count, .text:
             let text = style == .count ? "\(count)" : label
@@ -137,10 +213,10 @@ final class MenuBarPresenter {
             // 팝오버가 열려 있는 동안은 단색 테두리로.
             // 시스템 하이라이트와 색이 겹치면 탁해집니다. **내용은 그대로 둡니다.**
             if menuOpen || fill == nil {
-                return .init(kind: .outline(text: text), isTemplate: true)
+                return .init(kind: .outline(text: text), isTemplate: true, phase: phase)
             }
             return .init(kind: .filled(text: text, background: fill!, foreground: content),
-                         isTemplate: false)
+                         isTemplate: false, phase: phase)
         }
     }
 }

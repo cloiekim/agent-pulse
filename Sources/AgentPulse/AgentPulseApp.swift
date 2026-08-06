@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 폰트 먼저 — 첫 화면이 그려지기 전에 등록돼야 합니다.
         FontLoader.registerBundledFonts()
 
+        // 화면이 잠들면 파형 애니메이션을 멈춥니다.
+        MenuBarPresenter.shared.observeScreenSleep()
+
         // Dock 아이콘 없이 메뉴바에만 나타납니다.
         // (Xcode 프로젝트라면 Info.plist 의 LSUIElement = YES 와 같은 효과.
         //  SPM 실행 파일에는 Info.plist 가 없으므로 코드로 설정합니다.)

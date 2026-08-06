@@ -119,7 +119,9 @@ final class Notifier {
 
         case .failed:
             content.title = loc("Failed — \(session.title)", "실패 — \(session.title)")
-            content.body = session.detail
+            // ⚠️ `session.detail` 을 그대로 쓰면 안 됩니다 — `HTTP 502` 가 뜹니다.
+            //    목록과 **같은 문구**를 쓰도록 한 곳에서 만듭니다.
+            content.body = session.failureReason(loc)
                 ?? loc("\(session.agent.displayName) session ended with an error",
                        "\(session.agent.displayName) 세션이 오류로 종료됐습니다")
             content.interruptionLevel = .active

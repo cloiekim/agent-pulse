@@ -28,7 +28,7 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AgentAvatar(agent: session.agent)
+            AgentAvatar(agent: session.agent, product: session.surfaceName)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
@@ -122,7 +122,7 @@ struct SessionRow: View {
     private var subtitle: String {
         // 같은 사이트라도 표면이 다르면 그걸 씁니다 (`Claude Design` 등).
         // 그래야 제목만 보고 "이게 어디서 온 거지?" 를 안 묻게 됩니다.
-        var parts = [session.product ?? session.agent.displayName]
+        var parts = [session.surfaceName ?? session.agent.displayName]
 
         let place: String? = {
             if session.agent.surface != .terminal { return loc("tab", "탭") }
@@ -140,17 +140,8 @@ struct SessionRow: View {
         if session.state == .failed {
             // ⚠️ 한도 초과는 **언제 풀리는지**가 유일하게 쓸모 있는 정보입니다.
             //    `rate_limit` 이라는 코드를 그대로 보여주면 아무 도움이 안 됩니다.
-            if session.isRateLimited {
-                // 남은 시간은 오른쪽 알약이 말하므로 여기선 이유만.
-                return loc("Usage limit reached", "사용 한도 도달")
-            }
-            if session.isServerError {
-                return loc("Claude server error · tap for status",
-                           "Claude 서버 오류 · 눌러서 상태 확인")
-            }
-            if let reason = session.detail, !reason.isEmpty {
-                return reason
-            }
+            // 알림과 **같은 함수**를 씁니다 (AgentSession.failureReason).
+            if let reason = session.failureReason(loc) { return reason }
         }
 
         // 보여줄 시간이 없으면 대시도 붙이지 않습니다.

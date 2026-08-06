@@ -288,16 +288,32 @@ enum EventMapper {
         default: return nil
         }
 
+        let url = json["url"] as? String
+
         return AgentEvent(
             agent: agent,
             sessionKey: conversationID,
-            product: json["product"] as? String,
+            // 확장이 알려주면 그걸 쓰고, 없으면 주소에서 알아냅니다.
+            //
+            // ⚠️ 확장에만 의존하면 안 됩니다. 확장을 고쳐도 사용자가 크롬에서
+            //    수동으로 리로드하기 전까진 옛 코드가 돕니다. 주소는 이미
+            //    받고 있으니 여기서 판단하면 그 사이에도 맞게 나옵니다.
+            product: (json["product"] as? String) ?? Self.productFromURL(url),
             state: state,
             title: json["title"] as? String,
             detail: json["detail"] as? String,
             origin: .browser,
-            returnTarget: json["url"] as? String
+            returnTarget: url
         )
+    }
+
+    /// claude.ai 안의 표면을 주소로 구분합니다.
+    /// (`https://claude.ai/design/p/<id>` → `Claude Design`)
+    private static func productFromURL(_ raw: String?) -> String? {
+        guard let raw, let path = URL(string: raw)?.path else { return nil }
+        if path.hasPrefix("/design") { return "Claude Design" }
+        if path.hasPrefix("/cowork") { return "Claude Cowork" }
+        return nil
     }
 }
 

@@ -197,6 +197,31 @@ struct UsageQuota: Identifiable, Codable, Equatable {
             return loc("starting a new window…", "새 구간 시작 중…")
         }
 
+        // 다 썼으면 퍼센트는 할 말이 없습니다. 언제 풀리는지만 남깁니다.
+        if isExhausted {
+            if let resetsAt {
+                let remaining = resetsAt.timeIntervalSinceNow
+                if remaining > 0 {
+                    return loc("full · resets in \(remaining.shortDuration(loc))",
+                               "소진 · \(remaining.shortDuration(loc)) 후 리셋")
+                }
+            }
+            return loc("full", "소진")
+        }
+
+        // 아직 안 썼으면 `used 0 tokens` 대신 그렇게 말합니다.
+        if isUnused {
+            var text = loc("no usage yet", "아직 사용 없음")
+            if let resetsAt {
+                let remaining = resetsAt.timeIntervalSinceNow
+                if remaining > 0 {
+                    text += " · " + loc("resets in \(remaining.shortDuration(loc))",
+                                        "\(remaining.shortDuration(loc)) 후 리셋")
+                }
+            }
+            return text
+        }
+
         var parts: [String] = []
 
         switch measure {
@@ -239,6 +264,29 @@ struct UsageQuota: Identifiable, Codable, Equatable {
     var barFraction: Double? {
         if case .percent(let f) = measure { return max(0, min(1, f)) }
         return nil
+    }
+
+    /// 다 썼는가.
+    ///
+    /// ⚠️ 이게 **다른 어떤 상태와도 다른 이유**: 지금 아무것도 못 합니다.
+    ///    80% 는 "곧 막힌다" 라 큰 작업을 미룰지 판단하는 정보지만,
+    ///    100% 는 판단할 게 없습니다. 리셋 시각만이 유일하게 쓸모 있습니다.
+    ///
+    ///    실제로 크레딧이 0인데 5시간·주간이 여유 있어서 "다 안 썼다는데
+    ///    왜 막히지?" 가 나왔습니다. 그때 화면은 `0%` 라고만 말했습니다.
+    var isExhausted: Bool {
+        guard let f = barFraction else { return false }
+        return f >= 0.999
+    }
+
+    /// 이번 구간에 아직 아무것도 안 썼는가.
+    ///
+    /// ⚠️ `used 0 tokens` 는 정보가 아닙니다. 구간이 방금 리셋되면 이 값이
+    ///    0이 되는데, 예전엔 행이 통째로 사라져서 "사용량이 왜 없어졌지?" 가
+    ///    됐습니다. 사라지지도, 0을 들이밀지도 않는 게 맞습니다.
+    var isUnused: Bool {
+        if case .count(let used, _) = measure { return used == 0 }
+        return false
     }
 
     /// 1_234_567 → "1.2M"

@@ -50,6 +50,10 @@ const send = async (payload) => {
         conversationId: payload.conversationId,
         state: payload.state,
         title: payload.title,
+        // ⚠️ 여기서 필드를 하나씩 골라 담습니다. 새 필드를 inject.js 에
+        //    추가할 때 **여기도 같이 고쳐야** 합니다. `product` 가 이걸
+        //    빠뜨려서, 보내긴 보내는데 앱까지 도달을 못 했습니다.
+        product: payload.product,
         detail: payload.detail,
         url: payload.url,
       }),

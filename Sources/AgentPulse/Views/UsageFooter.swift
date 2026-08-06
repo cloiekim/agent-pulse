@@ -150,37 +150,56 @@ private struct BreakdownList: View {
     private var maxTokens: Int { max(slices.first?.tokens ?? 1, 1) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ForEach(slices) { slice in
-                HStack(spacing: 8) {
-                    Text(slice.name)
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(width: 96, alignment: .leading)
+        // ⚠️ 왼쪽 세로 가이드 한 줄로 "여기부터 하위 항목" 을 말합니다.
+        //
+        //    트리 선(`├─`)은 쓰지 않습니다. 깊이가 1단이고 항목이 2~5개뿐인데
+        //    가지를 그리면 파일 탐색기처럼 보이고, **실제로 없는 구조**를
+        //    암시합니다. 어디까지가 하위인지만 알려주면 충분합니다.
+        HStack(alignment: .top, spacing: 8) {
+            Capsule()
+                .fill(theme.divider)
+                .frame(width: 1)
 
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            // 막대 끝은 4px 라운드, 바닥선에 붙여 그립니다.
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(tint.opacity(0.16))
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(tint.opacity(0.75))
-                                .frame(width: max(3, geo.size.width
-                                        * CGFloat(slice.tokens) / CGFloat(maxTokens)))
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(slices) { slice in
+                    HStack(spacing: 8) {
+                        // ⚠️ 가운데 자르기를 **뒤 자르기로 바꿨습니다.**
+                        //    `interacti…emplate` 은 읽을 수가 없습니다.
+                        //    프로젝트 이름은 앞부분이 구분에 제일 중요하므로
+                        //    앞을 남기고 뒤를 자르는 게 맞습니다.
+                        Text(slice.name)
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            // 막대는 짧아져도 비율을 읽는 데 지장이 없습니다.
+                            // 그래서 남는 폭은 이름 쪽에 줍니다.
+                            .frame(width: 124, alignment: .leading)
+
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                // 막대 끝은 4px 라운드, 바닥선에 붙여 그립니다.
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(tint.opacity(0.16))
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(tint.opacity(0.75))
+                                    .frame(width: max(3, geo.size.width
+                                            * CGFloat(slice.tokens) / CGFloat(maxTokens)))
+                            }
                         }
-                    }
-                    .frame(height: 6)
+                        .frame(height: 6)
 
-                    Text(UsageQuota.compact(slice.tokens))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(theme.textSecondary)
-                        .frame(width: 42, alignment: .trailing)
+                        Text(UsageQuota.compact(slice.tokens))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(theme.textSecondary)
+                            .frame(width: 42, alignment: .trailing)
+                    }
+                    // 이름이 잘렸을 때 전체를 볼 방법은 있어야 합니다.
+                    .help(slice.name)
                 }
             }
         }
-        .padding(.leading, 18)
+        .padding(.leading, 10)
         .padding(.trailing, 2)
         .padding(.bottom, 2)
     }
@@ -221,8 +240,17 @@ private struct QuotaRow: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(theme.trackBg)
                             Capsule()
-                                // 80% 를 넘으면 주의 색으로. 곧 막힌다는 뜻입니다.
-                                .fill(fraction >= 0.8 ? theme.attentionFg : theme.trackFill)
+                                // ⚠️ 색은 **행동이 갈리는 곳에만** 씁니다.
+                                //    4~5단계로 나누면 40% 와 60% 가 달라 보이는데
+                                //    사용자가 할 일은 똑같습니다 — 없는 경계선을
+                                //    만드는 셈이고, 색은 정보가 아니라 장식이 됩니다.
+                                //
+                                //    실제로 갈리는 건 두 곳뿐입니다:
+                                //      · 80% — 곧 막힙니다. 큰 작업을 미룰 이유가 생깁니다
+                                //      · 100% — 막혔습니다. 리셋까지 할 수 있는 게 없습니다
+                                .fill(quota.isExhausted ? theme.errorText
+                                      : fraction >= 0.8 ? theme.attentionFg
+                                      : theme.trackFill)
                                 .frame(width: max(3, fraction * geo.size.width))
                         }
                     }

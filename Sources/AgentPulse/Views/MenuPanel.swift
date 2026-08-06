@@ -27,7 +27,10 @@ struct MenuPanel: View {
     @State private var showingSettings = false
 
     /// 접었을 때 보여주는 최대 행 수. 디자인 4a 는 6행 + 더보기.
-    private let collapsedLimit = 6
+    /// ⚠️ 첫 화면에 보이는 개수. 보관을 24시간으로 늘리면서 6 → 5 로 줄였습니다.
+    ///    쌓이는 양이 많아졌으니 접힌 뒤가 길어지는 건 괜찮지만,
+    ///    **첫 화면은 짧아야** 합니다. 지금 벌어지는 일이 먼저 보여야 하니까요.
+    private let collapsedLimit = 5
 
     var body: some View {
         VStack(spacing: 0) {

@@ -101,28 +101,89 @@
     if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
   };
 
+  // ── 일시적 5xx 유예 ──────────────────────────────────────────
+  //
+  // ⚠️ 502 같은 게이트웨이 오류는 **사이트가 스스로 재시도해서 성공하는 경우가
+  //    많습니다.** 그걸 바로 알림으로 쏘면, 사용자 화면에서는 아무 일도 없었는데
+  //    "실패했다" 는 알림만 뜹니다. 예전 타이머 기반 승인 감지에서 겪은 것과
+  //    같은 종류의 오탐입니다.
+  //
+  //    그래서 5xx 는 바로 안 쏘고 4초 기다립니다. 그 사이에 같은 대화에서
+  //    새 요청이 시작되면(=재시도) 없던 일로 합니다.
+  //    4xx 는 유예하지 않습니다 — 클라이언트 오류는 저절로 낫지 않습니다.
+  const TRANSIENT_MS = 4000;
+  let pendingError = null;
+
+  const clearPendingError = () => {
+    if (pendingError) { clearTimeout(pendingError); pendingError = null; }
+  };
+
+  // ── 지금 응답 중인 대화가 무엇인가 ───────────────────────────
+  //
+  // ⚠️ **끝을 알릴 때 대화 ID 를 그 자리에서 읽으면 안 됩니다.**
+  //
+  //    claude.ai 는 SPA 라 대화를 옮겨도 페이지가 새로 뜨지 않습니다.
+  //    A 대화가 응답 중일 때 B 대화로 넘어가면, 그 뒤에 오는 complete 는
+  //    현재 주소인 **B 의 ID** 로 나갑니다. A 는 끝났다는 말을 영영 못 듣고
+  //    앱에서 계속 `Running` 으로 남습니다.
+  //    (실제로 24분 넘게 돌고 있다고 표시된 세션이 이것 때문이었습니다.)
+  //
+  //    그래서 시작할 때 신원을 붙잡아 두고, 끝날 때 그걸 씁니다.
+  let activeConv = null;
+
+  const snapshotConv = () => ({
+    conversationId: conversationId(),
+    title: conversationTitle(),
+    product: productName() || undefined,
+    url: location.href,
+  });
+
   const emit = (state, detail) => {
+    // 새 요청이 시작되거나 정상 종료되면, 미뤄둔 오류는 없던 일이 됩니다.
+    if (state === 'generating' || state === 'complete') clearPendingError();
     clearStall();
+
     if (state === 'generating') {
+      activeConv = snapshotConv();
       stallTimer = setTimeout(() => {
         console.log('[Agent Pulse] 응답이 끊긴 것으로 보고 정리합니다');
         emit('complete');
       }, STALL_MS);
     }
-    console.log('[Agent Pulse] →', state, detail || '');
+
+    // 끝을 알릴 때는 **시작할 때 붙잡아 둔 신원**을 씁니다.
+    const who = state === 'generating' ? activeConv : (activeConv || snapshotConv());
+    if (state !== 'generating') activeConv = null;
+
+    console.log('[Agent Pulse] →', state, who.conversationId, detail || '');
     window.postMessage({
       source: 'agent-pulse',
       payload: {
         site: SITE,
-        conversationId: conversationId(),
+        conversationId: who.conversationId,
         state,                       // generating | complete | error
-        title: conversationTitle(),
-        product: productName() || undefined,
+        title: who.title,
+        product: who.product,
         detail: detail || undefined,
-        url: location.href,
+        url: who.url,
         seq: ++sequence,
       },
     }, location.origin);
+  };
+
+  /// 오류를 보고합니다. 5xx 는 재시도 여지를 주고 나서 보고합니다.
+  const reportError = (detail, status) => {
+    if (status && status >= 500) {
+      clearPendingError();
+      pendingError = setTimeout(() => {
+        pendingError = null;
+        console.log('[Agent Pulse] 재시도가 없어 오류로 확정합니다 —', detail);
+        emit('error', detail);
+      }, TRANSIENT_MS);
+      console.log('[Agent Pulse] 5xx 유예 중 (4초) —', detail);
+      return;
+    }
+    emit('error', detail);
   };
 
   /// 스트림이 끝날 때까지 지켜보다가 complete 를 쏩니다.
@@ -182,7 +243,7 @@
     return originalFetch.apply(this, args).then(
       (response) => {
         if (!response.ok) {
-          emit('error', `HTTP ${response.status}`);
+          reportError(`HTTP ${response.status}`, response.status);
           return response;
         }
         if (response.body) {

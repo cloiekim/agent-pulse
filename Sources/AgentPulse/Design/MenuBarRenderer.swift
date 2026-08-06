@@ -26,7 +26,17 @@ enum MenuBarRenderer {
         /// 템플릿이면 시스템이 알아서 색을 반전시킵니다.
         /// 채워진 캡슐은 **템플릿이면 안 됩니다** — 색이 통째로 날아갑니다.
         var isTemplate: Bool
+        /// 파형의 위상. `0 ..< frameCount`. 실행 중일 때만 0 이 아닙니다.
+        var phase: Int = 0
     }
+
+    /// 한 바퀴를 몇 장으로 나눌 것인가.
+    ///
+    /// ⚠️ 12장 / 1.2초 = 10fps. 파형이 흐르는 걸 보여주는 데는 이걸로 충분하고
+    ///    그 이상은 배터리만 씁니다. 그리고 **그릴 때마다 새로 그리지 않습니다** —
+    ///    12장을 캐시에 넣고 돌려 끼웁니다. 그래서 실행 중에 하는 일은
+    ///    0.1초마다 이미 만들어둔 `NSImage` 하나를 갈아 끼우는 것뿐입니다.
+    static let frameCount = 12
 
     // MARK: - 지오메트리 (스펙 값)
 
@@ -42,20 +52,49 @@ enum MenuBarRenderer {
 
     // MARK: - 그리기
 
-    static func image(_ spec: Spec) -> NSImage {
+    /// 그려둔 이미지 보관함. 키가 같으면 다시 그리지 않습니다.
+    private static var cache: [String: NSImage] = [:]
+
+    private static func cacheKey(_ spec: Spec) -> String {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let kind: String
         switch spec.kind {
         case .bare(let dot):
-            return bareImage(dot: dot, isTemplate: spec.isTemplate)
+            kind = "bare|\(dot?.description ?? "-")"
+        case .outline(let text):
+            kind = "outline|\(text)"
+        case .filled(let text, let bg, let fg):
+            kind = "filled|\(text)|\(bg.description)|\(fg.description)"
+        }
+        return "\(kind)|\(spec.isTemplate)|\(spec.phase)|\(dark)"
+    }
+
+    static func image(_ spec: Spec) -> NSImage {
+        let key = cacheKey(spec)
+        if let hit = cache[key] { return hit }
+        let made = render(spec)
+        // 라벨 문구가 바뀌면 키가 늘어납니다. 무한정 쌓이지 않게 잘라냅니다.
+        if cache.count > 96 { cache.removeAll() }
+        cache[key] = made
+        return made
+    }
+
+    private static func render(_ spec: Spec) -> NSImage {
+        switch spec.kind {
+        case .bare(let dot):
+            return bareImage(dot: dot, isTemplate: spec.isTemplate, phase: spec.phase)
         case .outline(let text):
             return capsuleImage(text: text, fill: nil,
-                                content: .labelColor, isTemplate: spec.isTemplate)
+                                content: .labelColor, isTemplate: spec.isTemplate,
+                                phase: spec.phase)
         case .filled(let text, let background, let foreground):
             return capsuleImage(text: text, fill: background,
-                                content: foreground, isTemplate: spec.isTemplate)
+                                content: foreground, isTemplate: spec.isTemplate,
+                                phase: spec.phase)
         }
     }
 
-    private static func bareImage(dot: NSColor?, isTemplate: Bool) -> NSImage {
+    private static func bareImage(dot: NSColor?, isTemplate: Bool, phase: Int) -> NSImage {
         // ⚠️ 점이 있을 때만 그만큼 넓힙니다.
         //    항상 여백을 두면 조용할 때 오른쪽에 빈 공간이 생기고,
         //    메뉴바에서 폭은 예산이라 그 4px 도 아까워집니다.
@@ -72,7 +111,7 @@ enum MenuBarRenderer {
             //
             //    디자인의 55% 는 여유 있는 메뉴바 기준이었습니다.
             //    보이지 않는 아이콘은 조용한 게 아니라 없는 것이므로 85% 로 올립니다.
-            drawGlyph(in: glyphRect, color: NSColor.labelColor.withAlphaComponent(0.85))
+            drawGlyph(in: glyphRect, color: NSColor.labelColor.withAlphaComponent(0.85), phase: phase)
 
             if let dot {
                 let d: CGFloat = 6
@@ -92,7 +131,8 @@ enum MenuBarRenderer {
     private static func capsuleImage(text: String,
                                      fill: NSColor?,
                                      content: NSColor,
-                                     isTemplate: Bool) -> NSImage {
+                                     isTemplate: Bool,
+                                     phase: Int) -> NSImage {
         let font = NSFont.systemFont(ofSize: labelSize, weight: .medium)
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: content]
         let textSize = (text as NSString).size(withAttributes: attrs)
@@ -122,7 +162,7 @@ enum MenuBarRenderer {
             let glyphRect = NSRect(x: padLeft,
                                    y: (size.height - glyphInCapsule) / 2,
                                    width: glyphInCapsule, height: glyphInCapsule)
-            drawGlyph(in: glyphRect, color: content)
+            drawGlyph(in: glyphRect, color: content, phase: phase)
 
             let textOrigin = NSPoint(x: glyphRect.maxX + gap,
                                      y: (size.height - textSize.height) / 2)
@@ -139,25 +179,56 @@ enum MenuBarRenderer {
     ///
     /// 경로는 디자인에서 내보낸 SVG 와 같습니다:
     ///   `M3.5 12 h3.5 l2.5 -7 l4.5 14 l2.5 -7 h4`  (stroke 2.2, round cap/join)
-    private static func drawGlyph(in rect: NSRect, color: NSColor) {
+    /// 파형 한 마디의 가로 길이 (24 뷰박스 기준).
+    ///
+    /// ⚠️ 3.5 에서 시작해 20.5 에서 끝나므로 마디 길이가 17 입니다.
+    ///    이 값으로 이어 붙이면 앞 마디의 끝(20.5)과 뒤 마디의 시작(3.5+17=20.5)이
+    ///    **정확히 만나서** 선이 끊기지 않습니다. 다른 값을 쓰면 이음매가 보입니다.
+    private static let wavePeriod: CGFloat = 17
+
+    private static func drawGlyph(in rect: NSRect, color: NSColor, phase: Int = 0) {
         let scale = rect.width / 24
-        func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        let shift = CGFloat(phase) / CGFloat(frameCount) * wavePeriod
+
+        func point(_ x: CGFloat, _ y: CGFloat, _ offset: CGFloat) -> NSPoint {
             // SVG 는 y 가 아래로 증가하고 AppKit 은 위로 증가합니다.
-            NSPoint(x: rect.minX + x * scale, y: rect.maxY - y * scale)
+            NSPoint(x: rect.minX + (x + offset - shift) * scale,
+                    y: rect.maxY - y * scale)
         }
 
-        let path = NSBezierPath()
-        path.move(to: point(3.5, 12))
-        path.line(to: point(7, 12))
-        path.line(to: point(9.5, 5))
-        path.line(to: point(14, 19))
-        path.line(to: point(16.5, 12))
-        path.line(to: point(20.5, 12))
+        NSGraphicsContext.saveGraphicsState()
+        // ⚠️ 자르는 창을 오른쪽으로 2pt 좁힙니다.
+        //
+        //    파형을 이어 붙여 흐르게 만들면서 **잉크가 박스 끝까지 꽉 차게**
+        //    됐습니다. 예전엔 한 마디만 그려서 20.5 에서 끝났고 오른쪽에
+        //    여백이 저절로 남았는데, 이제는 안 남습니다.
+        //    간격(2)은 그대로인데 눈에 보이는 여백만 사라져서 글자에
+        //    붙어 보였습니다.
+        //
+        //    간격을 4 로 늘리는 대신 자르는 창을 좁힙니다.
+        //    캡슐 전체 폭이 그대로 유지됩니다 — 메뉴바에서 폭은 예산입니다.
+        let clip = NSRect(x: rect.minX, y: rect.minY,
+                          width: rect.width - 2, height: rect.height)
+        NSBezierPath(rect: clip).setClip()
 
-        path.lineWidth = 2.2 * scale
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        color.setStroke()
-        path.stroke()
+        // 앞뒤로 한 마디씩 더 그려야 어느 위상에서도 빈 곳이 안 생깁니다.
+        for i in -1...1 {
+            let offset = CGFloat(i) * wavePeriod
+            let path = NSBezierPath()
+            path.move(to: point(3.5, 12, offset))
+            path.line(to: point(7, 12, offset))
+            path.line(to: point(9.5, 5, offset))
+            path.line(to: point(14, 19, offset))
+            path.line(to: point(16.5, 12, offset))
+            path.line(to: point(20.5, 12, offset))
+
+            path.lineWidth = 2.2 * scale
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            color.setStroke()
+            path.stroke()
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
