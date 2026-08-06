@@ -91,6 +91,17 @@ EOF
 # 로컬 실행용 임시(ad-hoc) 서명. 배포용 서명은 Phase 5 에서 별도로 합니다.
 codesign --force --deep --sign - "$APP" 2>/dev/null && echo "  · ad-hoc 서명 완료" || echo "  · ⚠️ 서명 건너뜀"
 
+# ⚠️ 돌고 있는 옛 앱을 **여기서 반드시 죽입니다.**
+#
+#    `open` 은 이미 실행 중인 앱이면 새로 띄우지 않고 앞으로 가져오기만 합니다.
+#    그래서 빌드가 성공해도 화면에는 옛 바이너리가 그대로 남고, 겉으로는
+#    "고쳤는데 안 고쳐졌다" 로 보입니다. 실제로 이걸 여러 번 반복했습니다.
+if pgrep -f "$APP/Contents/MacOS" >/dev/null 2>&1 || pgrep -x AgentPulse >/dev/null 2>&1; then
+    killall AgentPulse 2>/dev/null || true
+    sleep 1
+    echo "  · 실행 중이던 옛 앱을 종료했습니다"
+fi
+
 echo
 echo "✓ $APP 생성 완료"
 echo

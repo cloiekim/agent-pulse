@@ -34,6 +34,21 @@ mkdir -p "$STAGE/AgentPulse.app/Contents/MacOS" "$STAGE/AgentPulse.app/Contents/
 cp "$BIN" "$STAGE/AgentPulse.app/Contents/MacOS/AgentPulse"
 cp Resources/AgentPulse.icns "$STAGE/AgentPulse.app/Contents/Resources/" 2>/dev/null || true
 
+# ⚠️ SPM 리소스 번들을 **반드시** 같이 넣어야 합니다.
+#
+#    여기 빠져 있어서 지금까지 남에게 준 빌드는 브랜드 로고가 SF Symbol 로,
+#    글꼴이 시스템 폰트로 떨어져 있었습니다. `FontLoader` 가 `Bundle.module`
+#    에서 Figtree 를 찾는데 그 번들이 아예 없었으니까요.
+#    내 맥에서는 `make-app.sh` 가 넣어주니 멀쩡해 보였고, 그래서 못 봤습니다.
+BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+if [[ -d "$BIN_DIR/AgentPulse_AgentPulse.bundle" ]]; then
+  cp -R "$BIN_DIR/AgentPulse_AgentPulse.bundle" "$STAGE/AgentPulse.app/Contents/Resources/"
+  echo "  · 리소스 번들 포함됨 (로고 + Figtree)"
+else
+  echo "❌ 리소스 번들이 없습니다. 로고와 글꼴이 빠진 채로 나갑니다."
+  exit 1
+fi
+
 cat > "$STAGE/AgentPulse.app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -49,6 +64,8 @@ cat > "$STAGE/AgentPulse.app/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>         <string>APPL</string>
     <key>LSMinimumSystemVersion</key>      <string>14.0</string>
     <key>LSUIElement</key>                 <true/>
+    <!-- 폰트를 Resources/Fonts 에 넣으면 자동 등록됩니다 (Figtree) -->
+    <key>ATSApplicationFontsPath</key>     <string>Fonts</string>
 </dict>
 </plist>
 PLIST
