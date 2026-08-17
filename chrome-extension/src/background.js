@@ -139,9 +139,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: false, reason: 'window-closed' });
           return;
         }
-        const { token } = await res.json();
+        const { token, lang } = await res.json();
         await chrome.storage.local.set({ token });
-        sendResponse({ ok: true, token });
+        sendResponse({ ok: true, token, lang });
       } catch {
         sendResponse({ ok: false, reason: 'no-app' });
       }
@@ -164,9 +164,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           body: JSON.stringify({ site: 'claude.ai', conversationId: 'ping' }),
         });
         setBadge(res.status !== 401);
+
+        // ⚠️ 앱의 **언어 설정**을 같이 받아옵니다.
+        //    확장은 자기 힘으로 알 수 없어서 팝업에 한국어가 박혀 있었습니다.
+        //    크롬 로케일을 쓰면 안 됩니다 — 사용자가 고른 건 앱 설정입니다.
+        let lang;
+        try {
+          const p = await fetch(`http://127.0.0.1:${port}/ping`, {
+            method: 'POST',
+            headers: { 'X-Agent-Pulse-Token': token },
+          });
+          if (p.ok) lang = (await p.json()).lang;
+        } catch { /* 언어를 못 받아도 나머지는 그대로 동작합니다 */ }
+
         sendResponse({
           ok: res.status !== 401,
           status: res.status,
+          lang,
           reason: res.status === 401 ? 'bad-token' : 'connected',
         });
       } catch {

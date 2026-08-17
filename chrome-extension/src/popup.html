@@ -125,7 +125,7 @@
 <body>
   <header>
     <h1>Agent Pulse</h1>
-    <div class="status"><span class="dot" id="dot"></span><span id="statusText">확인 중…</span></div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText" data-i18n="checking">Checking…</span></div>
   </header>
 
   <div class="row">
@@ -139,35 +139,26 @@
   <!-- ⚠️ 자동 연결이 먼저입니다.
        토큰 붙여넣기는 자동이 안 될 때만 쓰는 뒷문으로 밀어뒀습니다.
        터미널에서 복사해 오라는 안내를 첫 화면에 두면 거기서 대부분 멈춥니다. -->
-  <button id="pair">앱에서 자동 연결</button>
+  <button id="pair" data-i18n="pair">Connect from the app</button>
   <p class="hint" style="text-align:center;margin-top:6px">
-    앱 설정에서 <b>크롬 확장 연결</b>을 먼저 누르세요
+    <span data-i18n-html="pairHint">In the app&rsquo;s settings, press <b>Connect Chrome extension</b> first</span>
   </p>
 
   <p id="message"></p>
 
   <details style="margin-top:10px">
-    <summary class="hint" style="cursor:pointer">직접 입력</summary>
+    <summary class="hint" style="cursor:pointer" data-i18n="manual">Enter manually</summary>
     <div style="margin-top:8px">
       <label for="token">Pairing token</label>
-      <input type="text" id="token" placeholder="앱 설정에서 확인" spellcheck="false">
+      <input type="text" id="token" placeholder="Find it in the app settings" data-i18n-ph="tokenPlaceholder" spellcheck="false">
       <p class="hint"><code>cat ~/.agent-pulse/token</code></p>
-      <button id="test">연결 확인</button>
+      <button id="test" data-i18n="test">Test connection</button>
     </div>
   </details>
 
   <div class="sites">
     <div><span>claude.ai</span><span id="lastClaude">—</span></div>
     <div><span>chatgpt.com</span><span id="lastGpt">—</span></div>
-  </div>
-
-  <!-- 사용량 탐색 결과 — 한도 정보가 어떤 모양으로 오는지 확인용 -->
-  <div class="discover" id="discoverBox" hidden>
-    <div class="dhead">
-      <span>사용량 발견</span>
-      <button id="copyFindings" class="tiny">복사</button>
-    </div>
-    <div id="findings"></div>
   </div>
 
   <script src="popup.js"></script>

@@ -83,12 +83,12 @@ struct ConnectionBanner: View {
 
     /// ⚠️ 숫자를 앞세우지 않습니다. 하나뿐이면 **무엇이** 끊겼는지 바로 말하는 게
     ///    훨씬 쓸모 있습니다. `1개 연결 끊김` 은 결국 한 번 더 누르게 만듭니다.
+    /// ⚠️ 이름을 문장에 끼워 넣지 않습니다.
+    ///    `\(name) is disconnected` 로 조립했더니 이름이 복수일 때
+    ///    `Browser tabs is disconnected` 가 됐습니다. 이름이 늘어날 때마다
+    ///    단수·복수를 맞춰줄 방법이 없으니, 문장을 만들지 않는 게 맞습니다.
     private var headline: String {
-        if broken.count == 1 {
-            return loc("\(broken[0].name) is disconnected",
-                       "\(broken[0].name) 연결 끊김")
-        }
         let names = broken.map(\.name).joined(separator: ", ")
-        return loc("Disconnected — \(names)", "연결 끊김 — \(names)")
+        return loc("Not connected — \(names)", "연결 끊김 — \(names)")
     }
 }

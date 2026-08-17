@@ -207,7 +207,9 @@ final class LocalEventServer {
             ConnectionStatus.markBrowserSeen()
             apLog("확장 페어링 성공")
             let escaped = token.replacingOccurrences(of: "\"", with: "")
-            return Self.reply(status: "200 OK", body: "{\"token\":\"\(escaped)\"}")
+            let lang = AppSettings.shared.language == .korean ? "ko" : "en"
+            return Self.reply(status: "200 OK",
+                              body: "{\"token\":\"\(escaped)\",\"lang\":\"\(lang)\"}")
         }
 
         // 토큰 검사 — 같은 머신의 다른 프로세스가 임의로 이벤트를 넣지 못하게.
@@ -243,7 +245,12 @@ final class LocalEventServer {
 
         // 확장의 "연결 확인" 버튼용. 본문이 없어도 200 을 돌려줍니다.
         if path == "/ping" {
-            return Self.reply(status: "200 OK", body: #"{"ok":true}"#)
+            // ⚠️ 언어를 같이 알려줍니다.
+            //    확장은 자기 힘으로 앱 설정을 알 수 없어서 한국어가 박혀
+            //    있었습니다. 앱을 영어로 써도 팝업만 한국어로 나왔습니다.
+            //    크롬 로케일을 쓰면 안 됩니다 — 사용자가 고른 건 **앱 설정**입니다.
+            let lang = AppSettings.shared.language == .korean ? "ko" : "en"
+            return Self.reply(status: "200 OK", body: "{\"ok\":true,\"lang\":\"\(lang)\"}")
         }
 
         guard let bodyData = body.data(using: .utf8),
