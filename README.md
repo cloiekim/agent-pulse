@@ -102,5 +102,7 @@ were removed for failing that test: an invented reset countdown for Codex
 that guessed wrong three times, and a token total that was counting cached
 context re-sends as new work.
 
+Code comments and commit messages are in Korean.
+
 Built by [Chloe Kim](https://github.com/cloiekim), a product designer, with
 Claude Code.
