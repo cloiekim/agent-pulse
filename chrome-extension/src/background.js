@@ -198,11 +198,36 @@ const USAGE_ALARM = 'agent-pulse-usage';
 //    `delayInMinutes` 로 곧바로 한 번 당겨옵니다.
 chrome.alarms.create(USAGE_ALARM, { delayInMinutes: 0.2, periodInMinutes: 10 });
 
+// ── 살아있음 알림 ────────────────────────────────────────────
+//
+// ⚠️ 앱은 확장이 설치돼 있는지 **파일로 알 수 없습니다.** 그래서 예전엔
+//    "한 번이라도 이벤트를 받아봤는가" 라는 불리언 하나로 판단했는데,
+//    한 번 켜지면 영원히 켜진 채라 확장이 통째로 사라져도 앱은 계속
+//    "연결됨" 이라고 믿었습니다. 실제로 크롬 업데이트에 확장이 날아갔는데
+//    앱은 아무 말도 안 했습니다.
+//
+//    그래서 5분마다 살아있다고 알립니다. 조용해지면 앱이 알아챕니다.
+const PING_ALARM = 'agent-pulse-ping';
+chrome.alarms.create(PING_ALARM, { delayInMinutes: 0.1, periodInMinutes: 5 });
+
+async function ping() {
+  const { port, token, enabled } = await settings();
+  if (!enabled || !token) return;
+  try {
+    await fetch(`http://127.0.0.1:${port}/hook/ping`, {
+      method: 'POST',
+      headers: { 'X-Agent-Pulse-Token': token },
+    });
+  } catch { /* 앱이 꺼져 있으면 조용히 넘어갑니다 */ }
+}
+ping();
+
 // 서비스 워커가 깨어날 때도 한 번. (확장 새로고침·브라우저 시작)
 fetchUsageInBackground();
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === USAGE_ALARM) fetchUsageInBackground();
+  if (alarm.name === PING_ALARM) ping();
 });
 
 // 확장이 깨어날 때 한 번 시도합니다 (브라우저 시작 직후 등).

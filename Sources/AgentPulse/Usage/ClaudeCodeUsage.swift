@@ -128,8 +128,16 @@ enum ClaudeCodeUsage {
 
             /// 캐시 읽기까지 포함합니다 — Anthropic 도 한도 계산에 넣습니다.
             var total: Int {
+                // ⚠️ `cache_read_input_tokens` 는 **더하지 않습니다.**
+                //
+                //    캐시에서 읽은 건 앞 맥락을 다시 보낸 것입니다. 대화가 길어질수록
+                //    턴마다 같은 토큰이 계속 쌓여서, 실제로 한 일보다 몇 배 큰
+                //    숫자가 나옵니다. (Codex 쪽에서 하루치를 재보니 171K 중 145K 가
+                //    이것이었습니다.)
+                //
+                //    `cache_creation` 은 더합니다 — 새로 쓴 내용이라 진짜 한 일입니다.
                 (input_tokens ?? 0) + (output_tokens ?? 0)
-                    + (cache_creation_input_tokens ?? 0) + (cache_read_input_tokens ?? 0)
+                    + (cache_creation_input_tokens ?? 0)
             }
         }
     }

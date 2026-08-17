@@ -32,9 +32,18 @@ struct MenuPanel: View {
     ///    **첫 화면은 짧아야** 합니다. 지금 벌어지는 일이 먼저 보여야 하니까요.
     private let collapsedLimit = 5
 
+    /// ⚠️ 파일을 읽는 검사라 매번 하면 낭비입니다. 팝오버가 열릴 때 한 번만
+    ///    갱신합니다 — 어차피 사용자가 볼 수 있는 건 그 순간뿐입니다.
+    @State private var brokenSurfaces: [ConnectionStatus.Surface] = []
+
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            // ⚠️ 헤더 **바로 아래**입니다. 목록 위에 두면 "아무것도 안 돌고 있음" 과
+            //    "보고 있지 않음" 이 같은 자리에서 경쟁합니다.
+            //    끊긴 게 없으면 아무것도 그리지 않습니다.
+            ConnectionBanner(broken: brokenSurfaces)
 
             // ⚠️ 온보딩은 **관문이 아니라 빈 화면의 한 종류**입니다.
             //
@@ -83,7 +92,10 @@ struct MenuPanel: View {
         }
         // 팝오버가 열려 있는 동안은 메뉴바 캡슐을 단색으로 바꿉니다.
         // 시스템 하이라이트와 색이 겹치면 탁해집니다.
-        .onAppear { MenuBarPresenter.shared.menuOpen = true }
+        .onAppear {
+            MenuBarPresenter.shared.menuOpen = true
+            brokenSurfaces = ConnectionStatus.broken(loc)
+        }
         .onDisappear { MenuBarPresenter.shared.menuOpen = false }
         .frame(width: Theme.popoverWidth)
         .background(theme.popover)

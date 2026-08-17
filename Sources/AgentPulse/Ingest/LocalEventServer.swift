@@ -230,8 +230,15 @@ final class LocalEventServer {
         //
         //    토큰이 맞는 요청이 왔다는 건 설치·페어링이 다 됐다는 뜻입니다.
         //    그거면 충분합니다.
-        if path.hasPrefix("/hook/browser") || path == "/hook/usage" || path == "/ping" {
+        if path.hasPrefix("/hook/browser") || path == "/hook/usage"
+            || path == "/ping" || path == "/hook/ping" {
             ConnectionStatus.markBrowserSeen()
+        }
+
+        // 확장이 5분마다 보내는 살아있음 신호. 시각만 갱신하고 끝냅니다.
+        // 이게 있어야 확장이 사라진 걸 앱이 알아챌 수 있습니다.
+        if path == "/hook/ping" {
+            return Self.reply(status: "200 OK", body: #"{"ok":true}"#)
         }
 
         // 확장의 "연결 확인" 버튼용. 본문이 없어도 200 을 돌려줍니다.

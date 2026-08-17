@@ -33,7 +33,7 @@ enum CodexUsage {
                                    modifiedWithin: UsageBlock.duration * 2) { line, url in
             guard let row = try? decoder.decode(Row.self, from: line),
                   row.type == "event_msg",
-                  let tokens = row.payload?.info?.last_token_usage?.total_tokens,
+                  let tokens = row.payload?.info?.last_token_usage?.newWork,
                   tokens > 0,
                   let ts = UsageBlock.date(from: row.timestamp) else { return }
             turns.append((ts, tokens))
@@ -84,6 +84,30 @@ enum CodexUsage {
 
         struct Payload: Decodable { let info: Info? }
         struct Info: Decodable { let last_token_usage: Tokens? }
-        struct Tokens: Decodable { let total_tokens: Int? }
+
+        struct Tokens: Decodable {
+            let total_tokens: Int?
+            let input_tokens: Int?
+            let cached_input_tokens: Int?
+            let output_tokens: Int?
+
+            /// 이번 턴에 **새로 처리한** 양.
+            ///
+            /// ⚠️ `total_tokens` 를 쓰면 안 됩니다. 거기엔 캐시된 입력이 들어
+            ///    있는데, 대화가 이어지면 매 턴마다 앞 맥락을 통째로 다시 보내므로
+            ///    턴 수만큼 같은 토큰이 계속 더해집니다.
+            ///
+            ///    실제로 하루치를 재보니 171,000 중 145,000 이 캐시였습니다.
+            ///    새로 한 일은 26,000 뿐인데 화면에는 171K 로 나왔고,
+            ///    "나 이만큼 안 쓴 것 같은데" 가 바로 나왔습니다. 맞는 말이었습니다.
+            ///
+            ///    OpenAI 로그에서 `input_tokens` 는 캐시분을 **포함한** 값이라
+            ///    빼줘야 합니다. (직접 확인: input 170,028 / 그중 캐시 144,896)
+            var newWork: Int? {
+                guard let input = input_tokens else { return total_tokens }
+                let fresh = max(0, input - (cached_input_tokens ?? 0))
+                return fresh + (output_tokens ?? 0)
+            }
+        }
     }
 }
